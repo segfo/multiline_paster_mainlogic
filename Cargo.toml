@@ -1,0 +1,37 @@
+[package]
+name = "main_logic"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+clap = {version = "4.0.32", features = ["derive", "cargo"]}
+once_cell = "1.16.0"
+send_input = {path = "../windows_send_input"}
+serde = { version = "^1.0.101", features = ["derive"] }
+serde_derive = "1.0.152"
+toml = "0.5.10"
+dirs = "4.0.0"
+libloading = "0.7"
+toolbox={path="../libtoolbox"}
+multiline_parser_pluginlib={path="../multiline_parser_pluginlib"}
+[dependencies.async-std]
+features = ["attributes", "std"]
+version = "1.12.0"
+[dependencies.windows]
+features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_System_LibraryLoader",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_System_DataExchange",
+  "Win32_System_SystemServices",
+  "Win32_System_Memory",
+  "Win32_System_WindowsProgramming",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_TextServices",
+]
+version = "0.43.0"
