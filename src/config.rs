@@ -12,11 +12,11 @@ pub fn init() -> (RunMode,Config) {
 
 use serde_derive::{Deserialize, Serialize};
 
-#[clap(group(
-    ArgGroup::new("run_mode")
-        .required(false)
-        .args(&["clipboard", "burst"]),
-))]
+// #[clap(group(
+//     ArgGroup::new("run_mode")
+//         .required(false)
+//         .args(&["clipboard", "burst"]),
+// ))]
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct CommandLineArgs {

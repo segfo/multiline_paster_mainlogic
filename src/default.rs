@@ -49,7 +49,9 @@ pub fn load_encoder(encoder_list: Vec<String>) {
 }
 ////
 pub fn key_down(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
-    if stroke_msg.flags.0 & (LLKHF_INJECTED.0 | LLKHF_LOWER_IL_INJECTED.0) == 0 {
+    if stroke_msg.flags.0 & (LLKHF_INJECTED.0 | LLKHF_LOWER_IL_INJECTED.0) == 0
+        || stroke_msg.dwExtraInfo == 0
+    {
         println!("[key down] stroke={stroke_msg:?}");
         let is_burst = unsafe {
             let mut lmap = map.write().unwrap();
@@ -65,7 +67,9 @@ pub fn key_down(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
 }
 
 pub fn key_up(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
-    if stroke_msg.flags.0 & (LLKHF_INJECTED.0 | LLKHF_LOWER_IL_INJECTED.0) == 0 {
+    if stroke_msg.flags.0 & (LLKHF_INJECTED.0 | LLKHF_LOWER_IL_INJECTED.0) == 0
+        || stroke_msg.dwExtraInfo == 0
+    {
         println!("[key up] stroke={stroke_msg:?}");
         unsafe {
             let mut lmap = map.write().unwrap();
@@ -170,7 +174,7 @@ fn judge_combo_key() -> ComboKey {
 }
 pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
     let mutex = unsafe { thread_mutex.lock().unwrap() };
-    let input_mode = unsafe {
+    let (input_mode, is_burst_mode) = unsafe {
         // DropTraitを有効にするために変数に束縛する
         // 束縛先の変数は未使用だが、最適化によってOpenClipboardが実行されなくなるので変数束縛は必ず行う。
         // ここでクリップボードを開いている理由は、CTRL+VによってWindowsがショートカットに反応してペーストしないようにロックする意図がある。
@@ -225,7 +229,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         } else {
             paste_impl(&mut cb);
         }
-        input_mode
+        (input_mode, is_burst_mode)
     };
     // Clipboard以外ならキー入力は行わない。
     if input_mode == InputMode::DirectKeyInput {
