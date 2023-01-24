@@ -2,21 +2,21 @@ use clap::{ArgGroup, Parser};
 use once_cell::unsync::*;
 use send_input::keyboard::windows::*;
 use toolbox::config_loader::*;
-pub fn init() -> (RunMode,Config) {
+pub fn init() -> (RunMode, Config) {
     let args = CommandLineArgs::parse();
     let mut mode = args.configure(RunMode::default());
-    let config:Config = ConfigLoader::load_file("logic_config.toml");
+    let config: Config = ConfigLoader::load_file("logic_config.toml");
     mode.set_config(config.clone());
-    (mode,config)
+    (mode, config)
 }
 
 use serde_derive::{Deserialize, Serialize};
 
-// #[clap(group(
-//     ArgGroup::new("run_mode")
-//         .required(false)
-//         .args(&["clipboard", "burst"]),
-// ))]
+#[clap(group(
+    ArgGroup::new("run_mode")
+        .required(false)
+        .args(&["clipboard", "burst"]),
+))]
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct CommandLineArgs {
@@ -39,7 +39,7 @@ impl CommandLineArgs {
         run_mode
     }
 }
-// use crate::CommandLineArgs;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     pub tabindex_key: String,
