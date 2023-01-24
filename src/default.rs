@@ -263,10 +263,8 @@ unsafe fn paste_impl(cb: &mut VecDeque<String>) {
         match String::from_utf8(encoded) {
             Ok(s)=>s,
             Err(e) => {
-                println!("detail : {e}");
-                println!("致命的なエラー: プラグインによるエンコードに失敗しました（UTF-8エンコードに即したデータ形式ではありません）");
-                println!("エンコード元: {}",&s);
-                return;
+                println!("🔥警告: プラグインによるエンコードに失敗したため、ロールバックします（返却値がUTF-8文字列ではありません / {e}）");
+                s
             }
         }
     };
