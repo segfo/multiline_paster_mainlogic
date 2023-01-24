@@ -2,14 +2,15 @@ use crate::config::*;
 use multiline_parser_pluginlib::{plugin::*, result::*};
 use once_cell::unsync::*;
 use send_input::keyboard::windows::*;
-use toolbox::config_loader::ConfigLoader;
-use std::ffi::{OsString, CString};
+use std::ffi::{CString, OsString};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::sync::Condvar;
 use std::time::Duration;
 use std::{
     collections::VecDeque,
     sync::{Mutex, RwLock},
 };
+use toolbox::config_loader::ConfigLoader;
 use windows::Win32::{
     Foundation::*,
     System::{DataExchange::*, Memory::*, SystemServices::*, WindowsProgramming::*},
@@ -42,7 +43,7 @@ pub fn load_encoder(encoder_list: Vec<String>) {
             println!("🔥警告: エンコーダプラグイン \"{encoder}\" が読み込めませんでした。({e})");
             continue;
         }
-        println!("📝情報： {} を読み込みました。",encoder);
+        println!("📝情報： {} を読み込みました。", encoder);
     }
     println!("エンコーダプラグインの読み込みが完了しました。🎉");
 }
@@ -98,7 +99,7 @@ async fn reset_clipboard() {
     let mut cb = unsafe { clipboard.lock().unwrap() };
     cb.clear();
 }
-struct Clipboard {}
+pub struct Clipboard {}
 impl Clipboard {
     fn open() -> Self {
         unsafe {
@@ -133,7 +134,7 @@ enum ComboKey {
     None,
     Combo(u64),
 }
-
+use std::sync::Arc;
 fn judge_combo_key() -> ComboKey {
     let lmap = unsafe { &mut map.read().unwrap() };
     // 0xA2:CTRL
@@ -152,23 +153,34 @@ fn judge_combo_key() -> ComboKey {
             // 0x56: V
             // 基本的に重たい操作なので非同期で行う
             // 意訳：さっさとフックプロシージャから復帰しないとキーボードがハングする。
-            async_std::task::spawn(paste());
+            // ただし、Clipboardをロックしてから戻らないとだめ。
+            let cb_lock_wait = Arc::new((Mutex::new(false), Condvar::new()));
+            async_std::task::spawn(paste(cb_lock_wait.clone()));
+            let (lock, cond) = &*cb_lock_wait;
+            lock.lock().unwrap(); // クリップボードがロックされるまで待つ。
             return ComboKey::Combo(1);
         } else if lmap[0x5A] && (lmap[VK_LMENU.0 as usize] | lmap[VK_RMENU.0 as usize]) {
             // Z
             async_std::task::spawn(undo_clipboard());
+
             return ComboKey::Combo(0);
         }
     }
     ComboKey::None
 }
-pub async fn paste() {
+pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
     let mutex = unsafe { thread_mutex.lock().unwrap() };
-    unsafe {
+    let input_mode = unsafe {
         // DropTraitを有効にするために変数に束縛する
         // 束縛先の変数は未使用だが、最適化によってOpenClipboardが実行されなくなるので変数束縛は必ず行う。
         // ここでクリップボードを開いている理由は、CTRL+VによってWindowsがショートカットに反応してペーストしないようにロックする意図がある。
+        // タイミングによってはロックできないので、条件変数を使用してメインスレッドを待機させておく。
+        // ロックが完了した瞬間にnotify_oneをする必要がある。可能な限り早く実施する。
+        let (lock, cond) = &*is_clipboard_locked;
         let iclip = Clipboard::open();
+        let mut is_lock = lock.lock().unwrap();
+        *is_lock = true;
+        cond.notify_one();
         // クリップボードを開く
         let mut cb = clipboard.lock().unwrap();
         EmptyClipboard();
@@ -177,13 +189,14 @@ pub async fn paste() {
             return;
         }
         // オプションをロードする
-        let (is_burst_mode, tabindex_keyseq, get_line_delay_msec, char_delay_msec) = {
+        let (is_burst_mode, tabindex_keyseq, get_line_delay_msec, char_delay_msec, input_mode) = {
             let mode = g_mode.read().unwrap();
             (
                 mode.is_burst_mode(),
                 mode.get_tabindex_keyseq(),
                 mode.get_line_delay_msec(),
                 mode.get_char_delay_msec(),
+                mode.get_input_mode(),
             )
         };
 
@@ -212,7 +225,34 @@ pub async fn paste() {
         } else {
             paste_impl(&mut cb);
         }
+        input_mode
+    };
+    // Clipboard以外ならキー入力は行わない。
+    if input_mode == InputMode::DirectKeyInput {
+        return;
     }
+    // クリップボードモードなら
+    // 強制的にペーストさせる。
+    let mut kbd = Keyboard::new();
+    kbd.append_input_chain(
+        KeycodeBuilder::default()
+            .vk(VK_LCONTROL.0)
+            .scan_code(virtual_key_to_scancode(VK_LCONTROL))
+            .key_send_mode(KeySendMode::KeyDown)
+            .build(),
+    );
+    KeycodeBuilder::default()
+        .char_build('v')
+        .iter()
+        .for_each(|key_code| kbd.append_input_chain(key_code.clone()));
+    kbd.append_input_chain(
+        KeycodeBuilder::default()
+            .vk(VK_LCONTROL.0)
+            .scan_code(virtual_key_to_scancode(VK_LCONTROL))
+            .key_send_mode(KeySendMode::KeyUp)
+            .build(),
+    );
+    kbd.send_key();
 }
 
 unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
@@ -240,13 +280,16 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
                 }
             }
             GlobalUnlock(h_text.0);
-            println!("クリップボードから {} 行コピーしました",cb.len()-current_len);
+            println!(
+                "クリップボードから {} 行コピーしました",
+                cb.len() - current_len
+            );
             Some(())
         }
     }
 }
 
-type EncodeFunc = unsafe extern "C" fn(*const u8,usize) -> EncodedString;
+type EncodeFunc = unsafe extern "C" fn(*const u8, usize) -> EncodedString;
 unsafe fn paste_impl(cb: &mut VecDeque<String>) {
     let s = cb.pop_back().unwrap();
     // Encoderプラグイン（仮）を呼び出す。
@@ -257,11 +300,11 @@ unsafe fn paste_impl(cb: &mut VecDeque<String>) {
 
         let mut encoded = CString::new(s.clone()).unwrap().to_bytes().to_vec();
         for f in func_list {
-            let e = f(encoded.as_ptr(),encoded.len());
+            let e = f(encoded.as_ptr(), encoded.len());
             encoded = e.to_vec();
         }
         match String::from_utf8(encoded) {
-            Ok(s)=>s,
+            Ok(s) => s,
             Err(e) => {
                 println!("🔥警告: プラグインによるエンコードに失敗したため、ロールバックします（返却値がUTF-8文字列ではありません / {e}）");
                 s
