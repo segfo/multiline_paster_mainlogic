@@ -180,6 +180,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         // ここでクリップボードを開いている理由は、CTRL+VによってWindowsがショートカットに反応してペーストしないようにロックする意図がある。
         // タイミングによってはロックできないので、条件変数を使用してメインスレッドを待機させておく。
         // ロックが完了した瞬間にnotify_oneをする必要がある。可能な限り早く実施する。
+        // ロックするまでの間にsleepはもちろんのこと、MutexLock/RwLockなどの重たい処理を行ってはならない。
         let (lock, cond) = &*is_clipboard_locked;
         let iclip = Clipboard::open();
         let mut is_lock = lock.lock().unwrap();
@@ -322,8 +323,10 @@ unsafe fn paste_impl(cb: &mut VecDeque<String>) {
 
     show_operation_message("ペースト");
     if input_mode == InputMode::DirectKeyInput {
-        let is_key_pressed =
-            |vk: u16| -> bool { unsafe { (GetKeyState(vk as i32) as u16) & 0x8000 != 0 } };
+        let is_key_pressed = |vk: usize| -> bool {
+            let lmap = map.read().unwrap();
+            lmap[vk]
+        };
         // 現在のキーボードの状況（KeyboardLLHookから取得した状況）に合わせて制御キーの解除と設定を行う。
         // その後に、ペースト対象のデータを送る
         // さらに、現在のキーボードの状況に合わせて今度は制御キーを復旧させる。
@@ -343,6 +346,8 @@ unsafe fn paste_impl(cb: &mut VecDeque<String>) {
                 .iter()
                 .for_each(|key_code| kbd.append_input_chain(key_code.clone()));
         }
+        kbd.send_key();
+        kbd.clear_input_chain();
         // CTRLキーが押されている状況をチェックしてチェーンに登録する
         let mode = if is_key_pressed(162) {
             KeySendMode::KeyDown
