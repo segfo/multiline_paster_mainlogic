@@ -230,6 +230,8 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         } else {
             paste_impl(&mut cb);
         }
+        let wait = g_mode.read().unwrap().get_copy_wait_millis();
+        std::thread::sleep(Duration::from_millis(wait));
         input_mode
     };
     // Clipboard以外ならキー入力は行わない。
