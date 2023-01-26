@@ -20,7 +20,7 @@ static mut clipboard: Lazy<Mutex<VecDeque<String>>> = Lazy::new(|| Mutex::new(Ve
 static mut thread_mutex: Lazy<Mutex<u32>> = Lazy::new(|| Mutex::new(0));
 static mut map: Lazy<RwLock<Vec<bool>>> = Lazy::new(|| RwLock::new(vec![false; 256]));
 static mut g_mode: Lazy<RwLock<RunMode>> = Lazy::new(|| RwLock::new(RunMode::default()));
-static mut TXT_ENCODER: Lazy<RwLock<PluginManager>> = Lazy::new(|| {
+static mut TXT_MODIFIER: Lazy<RwLock<PluginManager>> = Lazy::new(|| {
     let conf: MasterConfig = ConfigLoader::load_file("config.toml");
     RwLock::new(PluginManager::new(&conf.plugin_directory))
 });
@@ -33,19 +33,19 @@ pub fn set_mode(mode: RunMode) {
 }
 
 pub fn load_encoder(encoder_list: Vec<String>) {
-    let mut pm = unsafe { TXT_ENCODER.write().unwrap() };
+    let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
     for encoder in &encoder_list {
         if encoder.len() == 0 {
-            println!("🔥警告: エンコーダプラグインの設定に空白文字が指定されています。このプラグインは読まれません。");
+            println!("🔥警告: モディファイアの設定に空白文字が指定されています。このモディファイアは読まれません。");
             continue;
         }
         if let Err(e) = pm.load_plugin(encoder) {
-            println!("🔥警告: エンコーダプラグイン \"{encoder}\" が読み込めませんでした。({e})");
+            println!("🔥警告: モディファイア \"{encoder}\" が読み込めませんでした。({e})");
             continue;
         }
         println!("📝情報： {} を読み込みました。", encoder);
     }
-    println!("エンコーダプラグインの読み込みが完了しました。🎉");
+    println!("モディファイアの読み込みが完了しました。🎉");
 }
 ////
 pub fn key_down(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
@@ -150,7 +150,7 @@ fn judge_combo_key() -> ComboKey {
                 if lmap[vk] {
                     // 初期スロットは0
                     let slot_no = unsafe { &mut g_mode.read().unwrap().get_slot_no() };
-                    let mut pm = unsafe { TXT_ENCODER.write().unwrap() };
+                    let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
                     let key = vk - 0x31;
                     let state = pm.get_plugin_activate_state_with_order(key * (*slot_no + 1));
                     if let Some((plugin_name, state)) = state {
@@ -170,7 +170,7 @@ fn judge_combo_key() -> ComboKey {
                             }
                             None => "はロードされていません",
                         };
-                        println!("プラグイン \"{plugin_name}\" {s}");
+                        println!("モディファイア \"{plugin_name}\" {s}");
                     };
                 }
             }
@@ -186,7 +186,7 @@ fn judge_combo_key() -> ComboKey {
                 }
             }
             if lmap['Q' as usize] {
-                let pm = unsafe { TXT_ENCODER.write().unwrap() };
+                let pm = unsafe { TXT_MODIFIER.write().unwrap() };
                 let max_palettes = 9;
                 // 最大スロット番号
                 let max_slot_count = pm.loaded_plugin_counts() / max_palettes + 1; // 9はキーボードの1-9の意味
@@ -216,7 +216,7 @@ fn judge_combo_key() -> ComboKey {
                 };
                 let current_slot = &plugin_list[current_slot_min..current_slot_max];
                 println!("スロット番号が {} に切り替わりました", slot_no);
-                println!("現在のパレットに存在するプラグインは以下のとおりです");
+                println!("現在のパレットに存在するモディファイアは以下のとおりです");
                 for plugin_name in current_slot {
                     let about = plugin_about(&pm, plugin_name);
                     println!("{plugin_name} {about}");
@@ -399,9 +399,9 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
 type EncodeFunc = unsafe extern "C" fn(*const u8, usize) -> EncodedString;
 unsafe fn paste_impl(cb: &mut VecDeque<String>) {
     let s = cb.pop_back().unwrap();
-    // Encoderプラグイン（仮）を呼び出す。
+    // Encoderモディファイア（仮）を呼び出す。
     let s = unsafe {
-        let pm = TXT_ENCODER.read().unwrap();
+        let pm = TXT_MODIFIER.read().unwrap();
         let func_list =
             pm.get_all_plugin_func_with_order::<EncodeFunc>("do_encode", CallOrder::Asc);
 
@@ -413,7 +413,7 @@ unsafe fn paste_impl(cb: &mut VecDeque<String>) {
         match String::from_utf8(encoded) {
             Ok(s) => s,
             Err(e) => {
-                println!("🔥警告: プラグインによるエンコードに失敗したため、ロールバックします（返却値がUTF-8文字列ではありません / {e}）");
+                println!("🔥警告: モディファイアによるエンコードに失敗したため、ロールバックします（返却値がUTF-8文字列ではありません / {e}）");
                 s
             }
         }

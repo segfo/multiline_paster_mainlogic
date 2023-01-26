@@ -35,9 +35,9 @@ struct CommandLineArgs {
     /// バーストモード（フォームに対する連続入力モード）にするか選択できます。
     #[arg(long, default_value_t = false)]
     burst: bool,
-    /// プラグインの一覧を表示します
+    /// モディファイア(プラグイン)の一覧を表示します
     #[arg(long, default_value_t = false)]
-    installed_plugins:bool
+    installed_modifiers:bool
 }
 
 fn read_dir<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Vec<String>> {
@@ -63,7 +63,7 @@ impl CommandLineArgs {
         run_mode
     }
     fn show_install_plugins(&self)->bool{
-        if self.installed_plugins{
+        if self.installed_modifiers{
             let conf: MasterConfig = ConfigLoader::load_file("config.toml");
             let mut pm =PluginManager::new(&conf.plugin_directory);
             if let Ok(files)=read_dir(&conf.plugin_directory){
@@ -77,7 +77,7 @@ impl CommandLineArgs {
                 println!("{plugin_name}\t{about}");
             }
         }
-        self.installed_plugins
+        self.installed_modifiers
     }
 }
 
@@ -88,7 +88,7 @@ pub struct Config {
     pub char_delay_msec: u64,
     pub copy_wait_msec: u64,
     pub max_line_length: usize,
-    pub text_encoders: Option<Vec<String>>,
+    pub text_modifiers: Option<Vec<String>>,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -98,7 +98,7 @@ impl Default for Config {
             char_delay_msec: 0,
             copy_wait_msec: 250,
             max_line_length: 512,
-            text_encoders: None,
+            text_modifiers: None,
         }
     }
 }
