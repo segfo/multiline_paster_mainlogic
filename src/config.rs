@@ -1,9 +1,18 @@
-use clap::{ArgGroup, Parser};
-use once_cell::unsync::*;
-use send_input::keyboard::windows::*;
+use clap::{ArgGroup, Parser, Command, command,arg};
+use multiline_parser_pluginlib::{plugin::{PluginManager, MasterConfig, self}, result::EncodedString};
 use toolbox::config_loader::*;
+
+pub fn plugin_about(pm: &PluginManager, plugin_name: &str) -> String {
+    type PluginAbout = unsafe extern "C" fn() -> EncodedString;
+    match pm.get_plugin_function::<PluginAbout>(plugin_name, "about") {
+        Ok(f) => unsafe { f() }.to_string().unwrap_or_default(),
+        Err(_) => "".to_owned(),
+    }
+}
+
 pub fn init() -> (RunMode, Config) {
     let args = CommandLineArgs::parse();
+    if args.show_install_plugins(){std::process::exit(0);}
     let mut mode = args.configure(RunMode::default());
     let config: Config = ConfigLoader::load_file("logic_config.toml");
     mode.set_config(config.clone());
@@ -11,14 +20,13 @@ pub fn init() -> (RunMode, Config) {
 }
 
 use serde_derive::{Deserialize, Serialize};
-
-#[clap(group(
-    ArgGroup::new("run_mode")
-        .required(false)
-        .args(&["clipboard", "burst"]),
-))]
+// #[clap(group(
+//     ArgGroup::new("run_mode")
+//         .required(false)
+//         .args(&["clipboard", "burst"]),
+// ))]
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+// #[command(author, version, about, long_about = None)]
 struct CommandLineArgs {
     /// 動作モードがクリップボード経由でペーストされます（デフォルト：キーボードエミュレーションでのペースト）
     /// 本モードはバーストモードと排他です。
@@ -27,6 +35,22 @@ struct CommandLineArgs {
     /// バーストモード（フォームに対する連続入力モード）にするか選択できます。
     #[arg(long, default_value_t = false)]
     burst: bool,
+    /// プラグインの一覧を表示します
+    #[arg(long, default_value_t = false)]
+    installed_plugins:bool
+}
+
+fn read_dir<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Vec<String>> {
+    Ok(std::fs::read_dir(path)?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            if entry.file_type().ok()?.is_file() {
+                Some(entry.file_name().to_string_lossy().into_owned())
+            } else {
+                None
+            }
+        })
+        .collect())
 }
 impl CommandLineArgs {
     fn configure(&self, mut run_mode: RunMode) -> RunMode {
@@ -37,6 +61,23 @@ impl CommandLineArgs {
             InputMode::DirectKeyInput
         });
         run_mode
+    }
+    fn show_install_plugins(&self)->bool{
+        if self.installed_plugins{
+            let conf: MasterConfig = ConfigLoader::load_file("config.toml");
+            let mut pm =PluginManager::new(&conf.plugin_directory);
+            if let Ok(files)=read_dir(&conf.plugin_directory){
+                for file in files{
+                    pm.load_plugin(file);
+                }
+            };
+            let plugin_names = pm.get_plugin_ordered_list();
+            for plugin_name in plugin_names{
+                let about = plugin_about(&pm,&plugin_name);
+                println!("{plugin_name}\t{about}");
+            }
+        }
+        self.installed_plugins
     }
 }
 
@@ -67,6 +108,11 @@ pub enum InputMode {
     Clipboard,
     DirectKeyInput,
 }
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum HookMode {
+    OsStandard,
+    Override,
+}
 #[derive(Debug, PartialEq)]
 pub struct RunMode {
     input_mode: InputMode,
@@ -76,6 +122,8 @@ pub struct RunMode {
     char_delay_msec: u64,
     copy_wait_msec: u64,
     max_line_len: usize,
+    hook_mode: HookMode,
+    slot_no: usize,
 }
 impl Default for RunMode {
     fn default() -> Self {
@@ -87,6 +135,8 @@ impl Default for RunMode {
             char_delay_msec: 0,
             copy_wait_msec: 250,
             max_line_len: 512,
+            hook_mode: HookMode::Override,
+            slot_no: 0,
         }
     }
 }
@@ -126,6 +176,18 @@ impl RunMode {
     }
     pub fn get_max_line_len(&self) -> usize {
         self.max_line_len
+    }
+    pub fn set_hook_mode(&mut self, mode: HookMode) {
+        self.hook_mode = mode;
+    }
+    pub fn get_hook_mode(&self) -> HookMode {
+        self.hook_mode
+    }
+    pub fn get_slot_no(&self) -> usize {
+        self.slot_no
+    }
+    pub fn set_slot_no(&mut self, no: usize) {
+        self.slot_no = no;
     }
 }
 ////

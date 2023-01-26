@@ -145,37 +145,94 @@ fn judge_combo_key() -> ComboKey {
     if lmap[0xA2] == true {
         // CTRL+ALTキー
         if lmap[VK_LMENU.0 as usize] | lmap[VK_RMENU.0 as usize] {
-            // 0-9キーのどれか
-            for vk in 48..48+9 {
+            // 1-9キーのどれか
+            for vk in 0x31..0x39 {
                 if lmap[vk] {
+                    // 初期スロットは0
+                    let slot_no = unsafe { &mut g_mode.read().unwrap().get_slot_no() };
                     let mut pm = unsafe { TXT_ENCODER.write().unwrap() };
-                    let key = vk - 0x30;
-                    let state = pm.get_plugin_activate_state_with_order(key);
-                    if let Some(state)=state{
-                        let state= if state == PluginActivateState::Activate {
+                    let key = vk - 0x31;
+                    let state = pm.get_plugin_activate_state_with_order(key * (*slot_no + 1));
+                    if let Some((plugin_name, state)) = state {
+                        let state = if state == PluginActivateState::Activate {
                             PluginActivateState::Disable
                         } else {
                             PluginActivateState::Activate
                         };
                         let result = pm.set_plugin_activate_state_with_order(key, state);
-                        let s = match result{
-                            Some(s)=>{
-                                if s==PluginActivateState::Activate{
-                                    "有効化されました"
-                                }else{
-                                    "無効化されました"
-                                }},
-                            None=>{"ロードされていません"}
+                        let s = match result {
+                            Some(s) => {
+                                if s == PluginActivateState::Activate {
+                                    "が有効化されました"
+                                } else {
+                                    "が無効化されました"
+                                }
+                            }
+                            None => "はロードされていません",
                         };
-                        println!("プラグインが{s}");
-                        return ComboKey::Combo(4);
+                        println!("プラグイン \"{plugin_name}\" {s}");
                     };
                 }
             }
+            if lmap[0x30] {
+                let mode = unsafe { &mut g_mode.write().unwrap() };
+                let hook_mode = mode.get_hook_mode();
+                if hook_mode == HookMode::Override {
+                    mode.set_hook_mode(HookMode::OsStandard);
+                    println!("コピー・ペーストに関するホットキーをOSの既定動作に戻します。");
+                } else if hook_mode == HookMode::OsStandard {
+                    mode.set_hook_mode(HookMode::Override);
+                    println!("コピー・ペーストに関するホットキーを有効化しました。");
+                }
+            }
+            if lmap['Q' as usize] {
+                let pm = unsafe { TXT_ENCODER.write().unwrap() };
+                let max_palettes = 9;
+                // 最大スロット番号
+                let max_slot_count = pm.loaded_plugin_counts() / max_palettes + 1; // 9はキーボードの1-9の意味
+                let mode = unsafe { &mut g_mode.write().unwrap() };
+                let slot_no = mode.get_slot_no();
+                // スロット番号は0-max_slot_count-1までを取る。
+                if lmap[VK_LSHIFT.0 as usize] {
+                    let slot_no = if usize::MIN == slot_no {
+                        max_slot_count - 1
+                    } else {
+                        (slot_no - 1) % max_slot_count
+                    };
+                    mode.set_slot_no(slot_no);
+                } else {
+                    mode.set_slot_no((slot_no + 1) % max_slot_count);
+                }
+                let plugin_list = pm.get_plugin_ordered_list();
+                let slot_no = mode.get_slot_no();
+                println!("現在のスロット番号は{slot_no}");
+                let current_slot_max = slot_no * max_palettes + max_palettes - 1;
+                let current_slot_min = slot_no * max_palettes;
+                let plugin_list_len = plugin_list.len();
+                let current_slot_max = if plugin_list_len <= current_slot_max {
+                    plugin_list_len
+                } else {
+                    current_slot_max
+                };
+                let current_slot = &plugin_list[current_slot_min..current_slot_max];
+                println!("スロット番号が {} に切り替わりました", slot_no);
+                println!("現在のパレットに存在するプラグインは以下のとおりです");
+                for plugin_name in current_slot {
+                    let about = plugin_about(&pm, plugin_name);
+                    println!("{plugin_name} {about}");
+                }
+            }
+            return ComboKey::Combo(4);
         }
         if lmap[0x43] || lmap[0x58] {
             // 0x43:C
             // 0x58:X
+            {
+                let mode = unsafe { &mut g_mode.write().unwrap() };
+                if mode.get_hook_mode() == HookMode::OsStandard {
+                    return ComboKey::None;
+                }
+            }
             if lmap[VK_LMENU.0 as usize] | lmap[VK_RMENU.0 as usize] {
                 async_std::task::spawn(reset_clipboard());
                 return ComboKey::Combo(3);
@@ -185,6 +242,12 @@ fn judge_combo_key() -> ComboKey {
             }
         } else if lmap[0x56] {
             // 0x56: V
+            {
+                let mode = unsafe { &mut g_mode.write().unwrap() };
+                if mode.get_hook_mode() == HookMode::OsStandard {
+                    return ComboKey::None;
+                }
+            }
             // 基本的に重たい操作なので非同期で行う
             // 意訳：さっさとフックプロシージャから復帰しないとキーボードがハングする。
             // ただし、Clipboardをロックしてから戻らないとだめ。
@@ -195,6 +258,12 @@ fn judge_combo_key() -> ComboKey {
             return ComboKey::Combo(1);
         } else if lmap[0x5A] && (lmap[VK_LMENU.0 as usize] | lmap[VK_RMENU.0 as usize]) {
             // Z
+            {
+                let mode = unsafe { &mut g_mode.write().unwrap() };
+                if mode.get_hook_mode() == HookMode::OsStandard {
+                    return ComboKey::None;
+                }
+            }
             async_std::task::spawn(undo_clipboard());
 
             return ComboKey::Combo(0);
@@ -202,6 +271,7 @@ fn judge_combo_key() -> ComboKey {
     }
     ComboKey::None
 }
+
 pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
     let mutex = unsafe { thread_mutex.lock().unwrap() };
     let input_mode = unsafe {
