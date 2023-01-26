@@ -143,6 +143,36 @@ fn judge_combo_key() -> ComboKey {
     let lmap = unsafe { &mut map.read().unwrap() };
     // 0xA2:CTRL
     if lmap[0xA2] == true {
+        // CTRL+ALTキー
+        if lmap[VK_LMENU.0 as usize] | lmap[VK_RMENU.0 as usize] {
+            // 0-9キーのどれか
+            for vk in 48..48+9 {
+                if lmap[vk] {
+                    let mut pm = unsafe { TXT_ENCODER.write().unwrap() };
+                    let key = vk - 0x30;
+                    let state = pm.get_plugin_activate_state_with_order(key);
+                    if let Some(state)=state{
+                        let state= if state == PluginActivateState::Activate {
+                            PluginActivateState::Disable
+                        } else {
+                            PluginActivateState::Activate
+                        };
+                        let result = pm.set_plugin_activate_state_with_order(key, state);
+                        let s = match result{
+                            Some(s)=>{
+                                if s==PluginActivateState::Activate{
+                                    "有効化されました"
+                                }else{
+                                    "無効化されました"
+                                }},
+                            None=>{"ロードされていません"}
+                        };
+                        println!("プラグインが{s}");
+                        return ComboKey::Combo(4);
+                    };
+                }
+            }
+        }
         if lmap[0x43] || lmap[0x58] {
             // 0x43:C
             // 0x58:X
