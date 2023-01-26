@@ -148,11 +148,11 @@ fn judge_combo_key() -> ComboKey {
             // 1-9キーのどれか
             for vk in 0x31..0x39 {
                 if lmap[vk] {
-                    // 初期スロットは0
-                    let slot_no = unsafe { &mut g_mode.read().unwrap().get_slot_no() };
+                    // 初期パレットは0
+                    let palette_no = unsafe { &mut g_mode.read().unwrap().get_palette_no() };
                     let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
                     let key = vk - 0x31;
-                    let state = pm.get_plugin_activate_state_with_order(key * (*slot_no + 1));
+                    let state = pm.get_plugin_activate_state_with_order(key * (*palette_no + 1));
                     if let Some((plugin_name, state)) = state {
                         let state = if state == PluginActivateState::Activate {
                             PluginActivateState::Disable
@@ -188,36 +188,36 @@ fn judge_combo_key() -> ComboKey {
             if lmap['Q' as usize] {
                 let pm = unsafe { TXT_MODIFIER.write().unwrap() };
                 let max_palettes = 9;
-                // 最大スロット番号
-                let max_slot_count = pm.loaded_plugin_counts() / max_palettes + 1; // 9はキーボードの1-9の意味
+                // 最大パレット番号
+                let max_palette_count = pm.loaded_plugin_counts() / max_palettes + 1; // 9はキーボードの1-9の意味
                 let mode = unsafe { &mut g_mode.write().unwrap() };
-                let slot_no = mode.get_slot_no();
-                // スロット番号は0-max_slot_count-1までを取る。
+                let palette_no = mode.get_palette_no();
+                // パレット番号は0-max_palette_count-1までを取る。
                 if lmap[VK_LSHIFT.0 as usize] {
-                    let slot_no = if usize::MIN == slot_no {
-                        max_slot_count - 1
+                    let palette_no = if usize::MIN == palette_no {
+                        max_palette_count - 1
                     } else {
-                        (slot_no - 1) % max_slot_count
+                        (palette_no - 1) % max_palette_count
                     };
-                    mode.set_slot_no(slot_no);
+                    mode.set_palette_no(palette_no);
                 } else {
-                    mode.set_slot_no((slot_no + 1) % max_slot_count);
+                    mode.set_palette_no((palette_no + 1) % max_palette_count);
                 }
                 let plugin_list = pm.get_plugin_ordered_list();
-                let slot_no = mode.get_slot_no();
-                println!("現在のスロット番号は{slot_no}");
-                let current_slot_max = slot_no * max_palettes + max_palettes - 1;
-                let current_slot_min = slot_no * max_palettes;
+                let palette_no = mode.get_palette_no();
+                println!("現在のパレット番号は{palette_no}");
+                let current_palette_max = palette_no * max_palettes + max_palettes - 1;
+                let current_palette_min = palette_no * max_palettes;
                 let plugin_list_len = plugin_list.len();
-                let current_slot_max = if plugin_list_len <= current_slot_max {
+                let current_palette_max = if plugin_list_len <= current_palette_max {
                     plugin_list_len
                 } else {
-                    current_slot_max
+                    current_palette_max
                 };
-                let current_slot = &plugin_list[current_slot_min..current_slot_max];
-                println!("スロット番号が {} に切り替わりました", slot_no);
+                let current_palette = &plugin_list[current_palette_min..current_palette_max];
+                println!("パレット番号が {} に切り替わりました", palette_no);
                 println!("現在のパレットに存在するモディファイアは以下のとおりです");
-                for plugin_name in current_slot {
+                for plugin_name in current_palette {
                     let about = plugin_about(&pm, plugin_name);
                     println!("{plugin_name} {about}");
                 }

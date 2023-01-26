@@ -123,7 +123,7 @@ pub struct RunMode {
     copy_wait_msec: u64,
     max_line_len: usize,
     hook_mode: HookMode,
-    slot_no: usize,
+    palette_no: usize,
 }
 impl Default for RunMode {
     fn default() -> Self {
@@ -136,7 +136,7 @@ impl Default for RunMode {
             copy_wait_msec: 250,
             max_line_len: 512,
             hook_mode: HookMode::Override,
-            slot_no: 0,
+            palette_no: 0,
         }
     }
 }
@@ -183,11 +183,11 @@ impl RunMode {
     pub fn get_hook_mode(&self) -> HookMode {
         self.hook_mode
     }
-    pub fn get_slot_no(&self) -> usize {
-        self.slot_no
+    pub fn get_palette_no(&self) -> usize {
+        self.palette_no
     }
-    pub fn set_slot_no(&mut self, no: usize) {
-        self.slot_no = no;
+    pub fn set_palette_no(&mut self, no: usize) {
+        self.palette_no = no;
     }
 }
 ////
