@@ -208,7 +208,6 @@ fn judge_combo_key() -> ComboKey {
                 if lmap[vk] {
                     // 初期パレットは0
                     let palette_no = unsafe { &mut g_mode.read().unwrap().get_palette_no() };
-                    dbg!(&palette_no);
                     let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
                     let key = vk - 0x31;
                     let key = MAX_MODIFIER_PALETTES * (*palette_no) + key;
