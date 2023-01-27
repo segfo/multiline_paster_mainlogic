@@ -4,7 +4,7 @@ use once_cell::unsync::*;
 use send_input::keyboard::windows::*;
 use std::ffi::{CString, OsString};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
-use std::sync::Condvar;
+use std::sync::{Arc, Condvar};
 use std::time::Duration;
 use std::{
     collections::VecDeque,
@@ -24,6 +24,7 @@ static mut TXT_MODIFIER: Lazy<RwLock<PluginManager>> = Lazy::new(|| {
     let conf: MasterConfig = ConfigLoader::load_file("config.toml");
     RwLock::new(PluginManager::new(&conf.plugin_directory))
 });
+const MAX_MODIFIER_PALETTES: usize = 9;
 // クリップボード挿入モードか、DirectInputモードで動作するか選択できるようにする。
 pub fn set_mode(mode: RunMode) {
     unsafe {
@@ -46,13 +47,17 @@ pub fn load_encoder(encoder_list: Vec<String>) {
         println!("📝情報： {} を読み込みました。", encoder);
     }
     println!("モディファイアの読み込みが完了しました。🎉");
+    let palette_no = unsafe { g_mode.read().unwrap().get_palette_no() };
+    println!("📝現在のパレットに存在するモディファイアは以下の通りです。");
+    show_current_mod_palette(&mut pm, palette_no);
 }
+
 ////
 pub fn key_down(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
     if stroke_msg.flags.0 & (LLKHF_INJECTED.0 | LLKHF_LOWER_IL_INJECTED.0) == 0
         || stroke_msg.dwExtraInfo == 0
     {
-        println!("[key down] stroke={stroke_msg:?}");
+        // println!("[key down] stroke={stroke_msg:?}");
         let is_burst = unsafe {
             let mut lmap = map.write().unwrap();
             lmap[stroke_msg.vkCode as usize] = true;
@@ -70,7 +75,7 @@ pub fn key_up(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
     if stroke_msg.flags.0 & (LLKHF_INJECTED.0 | LLKHF_LOWER_IL_INJECTED.0) == 0
         || stroke_msg.dwExtraInfo == 0
     {
-        println!("[key up] stroke={stroke_msg:?}");
+        // println!("[key up] stroke={stroke_msg:?}");
         unsafe {
             let mut lmap = map.write().unwrap();
             lmap[stroke_msg.vkCode as usize] = false;
@@ -138,7 +143,32 @@ enum ComboKey {
     None,
     Combo(u64),
 }
-use std::sync::Arc;
+fn show_current_mod_palette(pm: &mut PluginManager, palette_no: usize) {
+    let plugin_list = pm.get_plugin_ordered_list().clone();
+    let current_palette_max = palette_no * MAX_MODIFIER_PALETTES + MAX_MODIFIER_PALETTES;
+    let current_palette_min = palette_no * MAX_MODIFIER_PALETTES;
+    let plugin_list_len = plugin_list.len();
+    let current_palette_max = if plugin_list_len < current_palette_max {
+        plugin_list_len
+    } else {
+        current_palette_max
+    };
+    let current_palette = &plugin_list[current_palette_min..current_palette_max];
+
+    for (slot_no, plugin_name) in current_palette.iter().enumerate() {
+        let (about, state) = plugin_about(pm, plugin_name);
+        println!(
+            "[{}] {plugin_name} {about} ({})",
+            slot_no + 1,
+            if state == PluginActivateState::Activate {
+                "有効"
+            } else {
+                "無効"
+            }
+        );
+    }
+}
+
 fn judge_combo_key() -> ComboKey {
     let lmap = unsafe { &mut map.read().unwrap() };
     // 0xA2:CTRL
@@ -174,13 +204,15 @@ fn judge_combo_key() -> ComboKey {
                 return ComboKey::Combo(0);
             }
             // 1-9キーのどれか
-            for vk in 0x31..0x39 {
+            for vk in 0x31..=0x39 {
                 if lmap[vk] {
                     // 初期パレットは0
                     let palette_no = unsafe { &mut g_mode.read().unwrap().get_palette_no() };
+                    dbg!(&palette_no);
                     let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
                     let key = vk - 0x31;
-                    let state = pm.get_plugin_activate_state_with_order(key * (*palette_no + 1));
+                    let key = MAX_MODIFIER_PALETTES * (*palette_no) + key;
+                    let state = pm.get_plugin_activate_state_with_order(key);
                     if let Some((plugin_name, state)) = state {
                         let state = if state == PluginActivateState::Activate {
                             PluginActivateState::Disable
@@ -203,41 +235,28 @@ fn judge_combo_key() -> ComboKey {
                 }
             }
             if lmap['Q' as usize] {
-                let pm = unsafe { TXT_MODIFIER.write().unwrap() };
-                let max_palettes = 9;
+                let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
                 // 最大パレット番号
-                let max_palette_count = pm.loaded_plugin_counts() / max_palettes + 1; // 9はキーボードの1-9の意味
+                let max_palette_count = (pm.loaded_plugin_counts()) / MAX_MODIFIER_PALETTES; // 9はキーボードの1-9の意味
                 let mode = unsafe { &mut g_mode.write().unwrap() };
                 let palette_no = mode.get_palette_no();
-                // パレット番号は0-max_palette_count-1までを取る。
+                // パレット番号は0-max_palette_countまでを取る。
                 if lmap[VK_LSHIFT.0 as usize] {
                     let palette_no = if usize::MIN == palette_no {
-                        max_palette_count - 1
+                        max_palette_count
                     } else {
-                        (palette_no - 1) % max_palette_count
+                        (palette_no - 1) % (max_palette_count + 1)
                     };
                     mode.set_palette_no(palette_no);
+                    println!("前に戻る");
                 } else {
-                    mode.set_palette_no((palette_no + 1) % max_palette_count);
+                    mode.set_palette_no((palette_no + 1) % (max_palette_count + 1));
+                    println!("先に進む");
                 }
-                let plugin_list = pm.get_plugin_ordered_list();
+                println!("📝パレット番号が {} に切り替わりました", palette_no);
+                println!("📝現在のパレットに存在するモディファイアは以下のとおりです");
                 let palette_no = mode.get_palette_no();
-                println!("現在のパレット番号は{palette_no}");
-                let current_palette_max = palette_no * max_palettes + max_palettes - 1;
-                let current_palette_min = palette_no * max_palettes;
-                let plugin_list_len = plugin_list.len();
-                let current_palette_max = if plugin_list_len <= current_palette_max {
-                    plugin_list_len
-                } else {
-                    current_palette_max
-                };
-                let current_palette = &plugin_list[current_palette_min..current_palette_max];
-                println!("パレット番号が {} に切り替わりました", palette_no);
-                println!("現在のパレットに存在するモディファイアは以下のとおりです");
-                for plugin_name in current_palette {
-                    let about = plugin_about(&pm, plugin_name);
-                    println!("{plugin_name} {about}");
-                }
+                show_current_mod_palette(&mut pm, palette_no);
             }
             return ComboKey::Combo(4);
         }

@@ -1,18 +1,30 @@
-use clap::{ArgGroup, Parser, Command, command,arg};
-use multiline_parser_pluginlib::{plugin::{PluginManager, MasterConfig, self}, result::EncodedString};
+use clap::{arg, command, ArgGroup, Parser};
+use multiline_parser_pluginlib::{
+    plugin::{self, MasterConfig, PluginActivateState, PluginManager},
+    result::EncodedString,
+};
 use toolbox::config_loader::*;
 
-pub fn plugin_about(pm: &PluginManager, plugin_name: &str) -> String {
+pub fn plugin_about(pm: &mut PluginManager, plugin_name: &str) -> (String, PluginActivateState) {
     type PluginAbout = unsafe extern "C" fn() -> EncodedString;
-    match pm.get_plugin_function::<PluginAbout>(plugin_name, "about") {
-        Ok(f) => unsafe { f() }.to_string().unwrap_or_default(),
-        Err(_) => "".to_owned(),
+    if let Some((_name, state_orig)) = pm.get_plugin_activate_state(plugin_name) {
+        pm.set_plugin_activate_state(plugin_name, plugin::PluginActivateState::Activate);
+        let result = match pm.get_plugin_function::<PluginAbout>(plugin_name, "about") {
+            Ok(f) => unsafe { f() }.to_string().unwrap_or_default(),
+            Err(_) => "".to_owned(),
+        };
+        pm.set_plugin_activate_state(plugin_name, state_orig.clone());
+        (result, state_orig)
+    } else {
+        ("".to_owned(), PluginActivateState::Disable)
     }
 }
 
 pub fn init() -> (RunMode, Config) {
     let args = CommandLineArgs::parse();
-    if args.show_install_plugins(){std::process::exit(0);}
+    if args.show_install_plugins() {
+        std::process::exit(0);
+    }
     let mut mode = args.configure(RunMode::default());
     let config: Config = ConfigLoader::load_file("logic_config.toml");
     mode.set_config(config.clone());
@@ -37,7 +49,7 @@ struct CommandLineArgs {
     burst: bool,
     /// モディファイア(プラグイン)の一覧を表示します
     #[arg(long, default_value_t = false)]
-    installed_modifiers:bool
+    installed_modifiers: bool,
 }
 
 fn read_dir<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Vec<String>> {
@@ -62,19 +74,19 @@ impl CommandLineArgs {
         });
         run_mode
     }
-    fn show_install_plugins(&self)->bool{
-        if self.installed_modifiers{
+    fn show_install_plugins(&self) -> bool {
+        if self.installed_modifiers {
             let conf: MasterConfig = ConfigLoader::load_file("config.toml");
-            let mut pm =PluginManager::new(&conf.plugin_directory);
-            if let Ok(files)=read_dir(&conf.plugin_directory){
-                for file in files{
+            let mut pm = PluginManager::new(&conf.plugin_directory);
+            if let Ok(files) = read_dir(&conf.plugin_directory) {
+                for file in files {
                     pm.load_plugin(&file);
-                    pm.set_plugin_activate_state(&file,plugin::PluginActivateState::Activate);
+                    pm.set_plugin_activate_state(&file, plugin::PluginActivateState::Activate);
                 }
             };
-            let plugin_names = pm.get_plugin_ordered_list();
-            for plugin_name in plugin_names{
-                let about = plugin_about(&pm,&plugin_name);
+            let plugin_names = pm.get_plugin_ordered_list().clone();
+            for plugin_name in plugin_names {
+                let (about, _) = plugin_about(&mut pm, &plugin_name);
                 println!("{plugin_name}\t{about}");
             }
         }
