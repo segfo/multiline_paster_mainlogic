@@ -143,8 +143,36 @@ fn judge_combo_key() -> ComboKey {
     let lmap = unsafe { &mut map.read().unwrap() };
     // 0xA2:CTRL
     if lmap[0xA2] == true {
+        let hook_mode = {
+            let mode = unsafe { &mut g_mode.write().unwrap() };
+            mode.get_hook_mode()
+        };
         // CTRL+ALTキー
         if lmap[VK_LMENU.0 as usize] | lmap[VK_RMENU.0 as usize] {
+            if lmap[0x30] {
+                let mode = unsafe { &mut g_mode.write().unwrap() };
+                let hook_mode = mode.get_hook_mode();
+                if hook_mode == HookMode::Override {
+                    mode.set_hook_mode(HookMode::OsStandard);
+                    println!("コピー・ペーストに関するホットキーをOSの既定動作に戻します。");
+                } else if hook_mode == HookMode::OsStandard {
+                    mode.set_hook_mode(HookMode::Override);
+                    println!("コピー・ペーストに関するホットキーを有効化しました。");
+                }
+            }
+            // HookMode::OsStandard時は、CTRL+ALT+0以外を全て無効化する。
+            if hook_mode == HookMode::OsStandard {
+                return ComboKey::None;
+            }
+            if lmap[0x43] || lmap[0x58] {
+                async_std::task::spawn(reset_clipboard());
+                return ComboKey::Combo(3);
+            }
+            if lmap[0x5A] {
+                // Z
+                async_std::task::spawn(undo_clipboard());
+                return ComboKey::Combo(0);
+            }
             // 1-9キーのどれか
             for vk in 0x31..0x39 {
                 if lmap[vk] {
@@ -172,17 +200,6 @@ fn judge_combo_key() -> ComboKey {
                         };
                         println!("モディファイア \"{plugin_name}\" {s}");
                     };
-                }
-            }
-            if lmap[0x30] {
-                let mode = unsafe { &mut g_mode.write().unwrap() };
-                let hook_mode = mode.get_hook_mode();
-                if hook_mode == HookMode::Override {
-                    mode.set_hook_mode(HookMode::OsStandard);
-                    println!("コピー・ペーストに関するホットキーをOSの既定動作に戻します。");
-                } else if hook_mode == HookMode::OsStandard {
-                    mode.set_hook_mode(HookMode::Override);
-                    println!("コピー・ペーストに関するホットキーを有効化しました。");
                 }
             }
             if lmap['Q' as usize] {
@@ -224,49 +241,26 @@ fn judge_combo_key() -> ComboKey {
             }
             return ComboKey::Combo(4);
         }
+        // HookMode::OsStandard時は、CTRL+ALT+0以外を全て無効化する。
+        if hook_mode == HookMode::OsStandard {
+            return ComboKey::None;
+        }
         if lmap[0x43] || lmap[0x58] {
             // 0x43:C
             // 0x58:X
-            {
-                let mode = unsafe { &mut g_mode.write().unwrap() };
-                if mode.get_hook_mode() == HookMode::OsStandard {
-                    return ComboKey::None;
-                }
-            }
-            if lmap[VK_LMENU.0 as usize] | lmap[VK_RMENU.0 as usize] {
-                async_std::task::spawn(reset_clipboard());
-                return ComboKey::Combo(3);
-            } else {
-                async_std::task::spawn(copy_clipboard());
-                return ComboKey::Combo(2);
-            }
-        } else if lmap[0x56] {
+            async_std::task::spawn(copy_clipboard());
+            return ComboKey::Combo(2);
+        }
+        if lmap[0x56] {
             // 0x56: V
-            {
-                let mode = unsafe { &mut g_mode.write().unwrap() };
-                if mode.get_hook_mode() == HookMode::OsStandard {
-                    return ComboKey::None;
-                }
-            }
             // 基本的に重たい操作なので非同期で行う
             // 意訳：さっさとフックプロシージャから復帰しないとキーボードがハングする。
             // ただし、Clipboardをロックしてから戻らないとだめ。
             let cb_lock_wait = Arc::new((Mutex::new(false), Condvar::new()));
             async_std::task::spawn(paste(cb_lock_wait.clone()));
-            let (lock, cond) = &*cb_lock_wait;
+            let (lock, _cond) = &*cb_lock_wait;
             lock.lock().unwrap(); // クリップボードがロックされるまで待つ。
             return ComboKey::Combo(1);
-        } else if lmap[0x5A] && (lmap[VK_LMENU.0 as usize] | lmap[VK_RMENU.0 as usize]) {
-            // Z
-            {
-                let mode = unsafe { &mut g_mode.write().unwrap() };
-                if mode.get_hook_mode() == HookMode::OsStandard {
-                    return ComboKey::None;
-                }
-            }
-            async_std::task::spawn(undo_clipboard());
-
-            return ComboKey::Combo(0);
         }
     }
     ComboKey::None
