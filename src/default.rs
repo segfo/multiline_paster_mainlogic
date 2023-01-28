@@ -2,8 +2,11 @@ use crate::config::*;
 use multiline_parser_pluginlib::{plugin::*, result::*};
 use once_cell::unsync::*;
 use send_input::keyboard::windows::*;
+use std::borrow::Cow;
+use std::cell::{Cell, RefCell};
 use std::ffi::{CString, OsString};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::rc::Rc;
 use std::sync::{Arc, Condvar};
 use std::time::Duration;
 use std::{
@@ -16,7 +19,73 @@ use windows::Win32::{
     System::{DataExchange::*, Memory::*, SystemServices::*, WindowsProgramming::*},
     UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
-static mut clipboard: Lazy<Mutex<VecDeque<String>>> = Lazy::new(|| Mutex::new(VecDeque::new()));
+struct ClipboardData {
+    data: VecDeque<String>,
+    copied_lines: Vec<usize>,
+    add_line_count: usize,
+}
+impl ClipboardData {
+    pub fn new() -> Self {
+        ClipboardData {
+            data: VecDeque::new(),
+            copied_lines: Vec::new(),
+            add_line_count: 0,
+        }
+    }
+    pub fn pop_back(&mut self) -> Option<String> {
+        self.data.pop_back()
+    }
+    pub fn commit_copy_lines(&mut self) {
+        self.copied_lines.push(self.add_line_count);
+        self.add_line_count = 0;
+    }
+    pub fn add_clipboard(&mut self, data: String) {
+        self.data.push_front(data);
+        self.add_line_count += 1;
+    }
+    pub fn clipboard_clear(&mut self) {
+        self.data.clear()
+    }
+    pub fn get_clipboard_lines(&self) -> usize {
+        self.data.len()
+    }
+    pub fn undo_data(&mut self) -> usize {
+        let lines = self.copied_lines.len();
+        if lines == 0 {
+            return 0;
+        }
+        self.remove_data(self.copied_lines[lines - 1])
+    }
+    pub fn remove_data(&mut self, delete_count: usize) -> usize {
+        let data_total = self.data.len();
+
+        if data_total == 0 {
+            return 0;
+        }
+        let mut actual_total_deletes = 0;
+        for i in 0..delete_count {
+            if i < data_total {
+                self.data.pop_back();
+                actual_total_deletes += 1;
+            } else {
+                break;
+            }
+        }
+        let e = self.copied_lines.len();
+        let mut total_deletes = actual_total_deletes;
+        for i in 0..e {
+            let lines = self.copied_lines.pop().unwrap();
+            if lines <= total_deletes {
+                total_deletes -= lines
+            } else {
+                self.copied_lines.push(total_deletes - lines);
+            };
+        }
+        actual_total_deletes
+    }
+}
+
+static mut clipboard: Lazy<Mutex<ClipboardData>> = Lazy::new(|| Mutex::new(ClipboardData::new()));
 static mut thread_mutex: Lazy<Mutex<u32>> = Lazy::new(|| Mutex::new(0));
 static mut map: Lazy<RwLock<Vec<bool>>> = Lazy::new(|| RwLock::new(vec![false; 256]));
 static mut g_mode: Lazy<RwLock<RunMode>> = Lazy::new(|| RwLock::new(RunMode::default()));
@@ -35,7 +104,7 @@ pub fn set_mode(mode: RunMode) {
 
 pub fn load_encoder(encoder_list: Vec<String>) {
     let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
-    if encoder_list.len()==0{
+    if encoder_list.len() == 0 {
         return;
     }
     for encoder in &encoder_list {
@@ -89,9 +158,13 @@ pub fn key_up(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
 
 async fn undo_clipboard() {
     show_operation_message("クリップボードに対するアンドゥ");
-    let mut cb = unsafe { clipboard.lock().unwrap() };
-    cb.pop_front();
-    println!("アンドゥ後のクリップボード内データ行数: {}行", cb.len());
+    let mut cb_data = unsafe { clipboard.lock().unwrap() };
+    let actual_delete_lines = cb_data.undo_data();
+    println!(
+        "削除した行数 {}行 残り {}行",
+        actual_delete_lines,
+        cb_data.get_clipboard_lines()
+    );
 }
 
 async fn copy_clipboard() {
@@ -102,14 +175,14 @@ async fn copy_clipboard() {
     let mut cb = unsafe { clipboard.lock().unwrap() };
     let iclip = Clipboard::open();
     unsafe {
-        load_data_from_clipboard(&mut *cb);
+        load_data_from_clipboard(&mut cb);
     }
 }
 
 async fn reset_clipboard() {
     show_operation_message("クリップボードデータの削除");
     let mut cb = unsafe { clipboard.lock().unwrap() };
-    cb.clear();
+    cb.clipboard_clear();
 }
 pub struct Clipboard {}
 impl Clipboard {
@@ -222,15 +295,15 @@ fn judge_combo_key() -> ComboKey {
                             PluginActivateState::Activate
                         };
                         let result = pm.set_plugin_activate_state_with_order(key, state);
-                        let (emoji,s) = match result {
+                        let (emoji, s) = match result {
                             Some(s) => {
                                 if s == PluginActivateState::Activate {
-                                    ("✅","が有効化されました")
+                                    ("✅", "が有効化されました")
                                 } else {
-                                    ("🚫","が無効化されました")
+                                    ("🚫", "が無効化されました")
                                 }
                             }
-                            None => ("❌","はロードされていません"),
+                            None => ("❌", "はロードされていません"),
                         };
                         println!("{emoji}  モディファイア \"{plugin_name}\" {s}");
                     };
@@ -303,9 +376,9 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         *is_lock = true;
         cond.notify_one();
         // クリップボードを開く
-        let mut cb = clipboard.lock().unwrap();
+        let mut cb_data = clipboard.lock().unwrap();
         EmptyClipboard();
-        if cb.len() == 0 {
+        if cb_data.get_clipboard_lines() == 0 {
             println!("クリップボードにデータがありません。");
             return;
         }
@@ -323,7 +396,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
 
         if is_burst_mode {
             let mut kbd = Keyboard::new();
-            let len = cb.len();
+            let len = cb_data.get_clipboard_lines();
             kbd.new_delay(char_delay_msec);
             kbd.append_input_chain(
                 KeycodeBuilder::default()
@@ -338,13 +411,13 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
                     .for_each(|keycode| kbd.append_input_chain(keycode.clone()));
             }
             for _i in 0..len {
-                paste_impl(&mut cb);
+                paste_impl(&mut cb_data);
                 kbd.send_key();
                 // キーストロークとの間に数ミリ秒の待機時間を設ける
                 std::thread::sleep(Duration::from_millis(get_line_delay_msec))
             }
         } else {
-            paste_impl(&mut cb);
+            paste_impl(&mut cb_data);
         }
         let wait = g_mode.read().unwrap().get_copy_wait_millis();
         std::thread::sleep(Duration::from_millis(wait));
@@ -384,7 +457,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
     kbd.send_key();
 }
 
-unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
+unsafe fn load_data_from_clipboard(cb_data: &mut ClipboardData) -> Option<()> {
     let h_text = GetClipboardData(CF_UNICODETEXT.0);
     let line_len_max = unsafe { g_mode.read().unwrap().get_max_line_len() };
     match h_text {
@@ -395,7 +468,7 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
             // 今クリップボードにある内容をコピーする（改行で分割される）
             // 後でここの挙動を変えても良さそう。
             let text = u16_ptr_to_string(p_text as *const _).into_string().unwrap();
-            let current_len = cb.len();
+            let current_len = cb_data.get_clipboard_lines();
             for line in text.lines() {
                 let line_len = line.len();
                 if line_len != 0 {
@@ -403,15 +476,18 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
                         println!("1行が長過ぎる文字列({}文字以上の行)をコピーしようとしたため、当該行はスキップしました。",line_len_max);
                         continue;
                     }
-                    cb.push_front(line.to_owned());
+                    // cb.push_front(line.to_owned());
+                    cb_data.add_clipboard(line.to_owned());
                 } else {
-                    cb.push_front("".to_owned());
+                    cb_data.add_clipboard("".to_owned());
+                    // cb.push_front("".to_owned());
                 }
             }
+            cb_data.commit_copy_lines();
             GlobalUnlock(h_text.0);
             println!(
                 "クリップボードから {} 行コピーしました",
-                cb.len() - current_len
+                cb_data.get_clipboard_lines() - current_len
             );
             Some(())
         }
@@ -419,7 +495,7 @@ unsafe fn load_data_from_clipboard(cb: &mut VecDeque<String>) -> Option<()> {
 }
 
 type EncodeFunc = unsafe extern "C" fn(*const u8, usize) -> EncodedString;
-unsafe fn paste_impl(cb: &mut VecDeque<String>) {
+unsafe fn paste_impl(cb: &mut ClipboardData) {
     let s = cb.pop_back().unwrap();
     // Encoderモディファイア（仮）を呼び出す。
     let s = unsafe {
