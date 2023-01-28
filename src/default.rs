@@ -65,7 +65,7 @@ impl ClipboardData {
         let mut actual_total_deletes = 0;
         for i in 0..delete_count {
             if i < data_total {
-                self.data.pop_back();
+                self.data.pop_front();
                 actual_total_deletes += 1;
             } else {
                 break;
@@ -78,7 +78,7 @@ impl ClipboardData {
             if lines <= total_deletes {
                 total_deletes -= lines
             } else {
-                self.copied_lines.push(total_deletes - lines);
+                self.copied_lines.push(lines - total_deletes);
             };
         }
         actual_total_deletes
