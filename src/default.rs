@@ -303,11 +303,11 @@ pub fn eh_init() {
                 let hook_mode = mode.get_hook_mode();
                 if hook_mode == HookMode::Override {
                     mode.set_hook_mode(HookMode::OsStandard);
-                    println!("♻️  コピー・ペーストに関するホットキーをOSの既定動作に戻します。");
+                    println!("🔒  コピー・ペーストに関するホットキーをOSの既定動作に戻します。");
                     ComboKey::None
                 } else if hook_mode == HookMode::OsStandard {
                     mode.set_hook_mode(HookMode::Override);
-                    println!("🖥️  コピー・ペーストに関するホットキーを有効化しました。");
+                    println!("🔓  コピー・ペーストに関するホットキーを有効化しました。");
                     ComboKey::Combo(4)
                 } else {
                     ComboKey::Combo(3)
