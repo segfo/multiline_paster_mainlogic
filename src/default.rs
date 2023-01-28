@@ -40,18 +40,18 @@ pub fn load_encoder(encoder_list: Vec<String>) {
     }
     for encoder in &encoder_list {
         if encoder.len() == 0 {
-            println!("🔥警告: モディファイアの設定に空白文字が指定されています。このモディファイアは読まれません。");
+            println!("🔥  警告: モディファイアの設定に空白文字が指定されています。このモディファイアは読まれません。");
             continue;
         }
         if let Err(e) = pm.load_plugin(encoder) {
-            println!("🔥警告: モディファイア \"{encoder}\" が読み込めませんでした。({e})");
+            println!("🔥  警告: モディファイア \"{encoder}\" が読み込めませんでした。({e})");
             continue;
         }
         println!("📝情報： {} を読み込みました。", encoder);
     }
-    println!("モディファイアの読み込みが完了しました。🎉");
+    println!("🎉  モディファイアの読み込みが完了しました。");
     let palette_no = unsafe { g_mode.read().unwrap().get_palette_no() };
-    println!("📝現在のパレット（{palette_no}番パレット）にセットされているモディファイアは以下の通りです。");
+    println!("📝  現在のパレット（{palette_no}番パレット）にセットされているモディファイアは以下の通りです。");
     show_current_mod_palette(&mut pm, palette_no);
 }
 
@@ -187,10 +187,10 @@ fn judge_combo_key() -> ComboKey {
                 let hook_mode = mode.get_hook_mode();
                 if hook_mode == HookMode::Override {
                     mode.set_hook_mode(HookMode::OsStandard);
-                    println!("コピー・ペーストに関するホットキーをOSの既定動作に戻します。");
+                    println!("♻️  コピー・ペーストに関するホットキーをOSの既定動作に戻します。");
                 } else if hook_mode == HookMode::OsStandard {
                     mode.set_hook_mode(HookMode::Override);
-                    println!("コピー・ペーストに関するホットキーを有効化しました。");
+                    println!("🖥️  コピー・ペーストに関するホットキーを有効化しました。");
                 }
             }
             // HookMode::OsStandard時は、CTRL+ALT+0以外を全て無効化する。
@@ -222,17 +222,17 @@ fn judge_combo_key() -> ComboKey {
                             PluginActivateState::Activate
                         };
                         let result = pm.set_plugin_activate_state_with_order(key, state);
-                        let s = match result {
+                        let (emoji,s) = match result {
                             Some(s) => {
                                 if s == PluginActivateState::Activate {
-                                    "が有効化されました"
+                                    ("✅","が有効化されました")
                                 } else {
-                                    "が無効化されました"
+                                    ("🚫","が無効化されました")
                                 }
                             }
-                            None => "はロードされていません",
+                            None => ("❌","はロードされていません"),
                         };
-                        println!("モディファイア \"{plugin_name}\" {s}");
+                        println!("{emoji}  モディファイア \"{plugin_name}\" {s}");
                     };
                 }
             }
@@ -257,8 +257,8 @@ fn judge_combo_key() -> ComboKey {
                     (palette_no + 1) % (max_palette_count + 1)
                 };
                 mode.set_palette_no(palette_no);
-                println!("📝{} 番パレットに切り替わりました", palette_no);
-                println!("📝現在のパレットにセットされているモディファイアは以下の通りです。");
+                println!("📝  {} 番パレットに切り替わりました", palette_no);
+                println!("📝  現在のパレットにセットされているモディファイアは以下の通りです。");
                 show_current_mod_palette(&mut pm, palette_no);
             }
             return ComboKey::Combo(4);
