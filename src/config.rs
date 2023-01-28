@@ -28,6 +28,7 @@ pub fn init() -> (RunMode, Config) {
     let mut mode = args.configure(RunMode::default());
     let config: Config = ConfigLoader::load_file("logic_config.toml");
     mode.set_config(config.clone());
+    crate::default::eh_init();
     (mode, config)
 }
 
