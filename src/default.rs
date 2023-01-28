@@ -124,11 +124,11 @@ pub fn load_encoder(encoder_list: Vec<String>) {
             println!("🔥  モディファイア \"{encoder}\" が読み込めませんでした。({e})");
             continue;
         }
-        println!("📝  {} を読み込みました。", encoder);
+        println!("📘  {} を読み込みました。", encoder);
     }
     println!("🎉  モディファイアの読み込みが完了しました。");
     let palette_no = unsafe { g_mode.read().unwrap().get_palette_no() };
-    println!("📝  現在のパレット（{palette_no}番パレット）にセットされているモディファイアは以下の通りです。");
+    println!("📘  現在のパレット（{palette_no}番パレット）にセットされているモディファイアは以下の通りです。");
     show_current_mod_palette(&mut pm, palette_no);
 }
 
@@ -307,7 +307,7 @@ pub fn eh_init() {
                     ComboKey::None
                 } else if hook_mode == HookMode::OsStandard {
                     mode.set_hook_mode(HookMode::Override);
-                    println!("✅  コピー・ペーストに関するホットキーを有効化しました。");
+                    println!("📋  コピー・ペーストに関するホットキーを有効化しました。");
                     ComboKey::Combo(4)
                 } else {
                     ComboKey::Combo(3)
