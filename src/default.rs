@@ -364,8 +364,11 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         .char_build('v')
         .iter()
         .for_each(|key_code| kbd.append_input_chain(key_code.clone()));
-    let lmap = unsafe { map.read().unwrap() };
-    if lmap[VK_LCONTROL.0 as usize]==false {
+    let l_ctrl = unsafe {
+        let lmap = map.read().unwrap();
+        lmap[VK_LCONTROL.0 as usize]
+    };
+    if l_ctrl == false {
         kbd.append_input_chain(
             KeycodeBuilder::default()
                 .vk(VK_LCONTROL.0)
