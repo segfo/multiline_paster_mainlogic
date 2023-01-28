@@ -48,7 +48,7 @@ pub fn load_encoder(encoder_list: Vec<String>) {
     }
     println!("モディファイアの読み込みが完了しました。🎉");
     let palette_no = unsafe { g_mode.read().unwrap().get_palette_no() };
-    println!("📝現在のパレットにセットされているモディファイアは以下の通りです。");
+    println!("📝現在のパレット（{palette_no}番パレット）にセットされているモディファイアは以下の通りです。");
     show_current_mod_palette(&mut pm, palette_no);
 }
 
@@ -240,21 +240,18 @@ fn judge_combo_key() -> ComboKey {
                 let mode = unsafe { &mut g_mode.write().unwrap() };
                 let palette_no = mode.get_palette_no();
                 // パレット番号は0-max_palette_countまでを取る。
-                if lmap[VK_LSHIFT.0 as usize] {
-                    let palette_no = if usize::MIN == palette_no {
+                let palette_no = if lmap[VK_LSHIFT.0 as usize] {
+                    if usize::MIN == palette_no {
                         max_palette_count
                     } else {
                         (palette_no - 1) % (max_palette_count + 1)
-                    };
-                    mode.set_palette_no(palette_no);
-                    println!("前に戻る");
+                    }
                 } else {
-                    mode.set_palette_no((palette_no + 1) % (max_palette_count + 1));
-                    println!("先に進む");
-                }
-                println!("📝パレット番号が {} に切り替わりました", palette_no);
+                    (palette_no + 1) % (max_palette_count + 1)
+                };
+                mode.set_palette_no(palette_no);
+                println!("📝{} 番パレットに切り替わりました", palette_no);
                 println!("📝現在のパレットにセットされているモディファイアは以下の通りです。");
-                let palette_no = mode.get_palette_no();
                 show_current_mod_palette(&mut pm, palette_no);
             }
             return ComboKey::Combo(4);
