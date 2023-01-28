@@ -35,6 +35,9 @@ pub fn set_mode(mode: RunMode) {
 
 pub fn load_encoder(encoder_list: Vec<String>) {
     let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
+    if encoder_list.len()==0{
+        return;
+    }
     for encoder in &encoder_list {
         if encoder.len() == 0 {
             println!("🔥警告: モディファイアの設定に空白文字が指定されています。このモディファイアは読まれません。");
@@ -236,7 +239,11 @@ fn judge_combo_key() -> ComboKey {
             if lmap['Q' as usize] {
                 let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
                 // 最大パレット番号
-                let max_palette_count = (pm.loaded_plugin_counts()) / MAX_MODIFIER_PALETTES; // 9はキーボードの1-9の意味
+                let load_modifier_counts = pm.loaded_plugin_counts();
+                if load_modifier_counts == 0 {
+                    return ComboKey::Combo(4);
+                }
+                let max_palette_count = (load_modifier_counts - 1) / MAX_MODIFIER_PALETTES;
                 let mode = unsafe { &mut g_mode.write().unwrap() };
                 let palette_no = mode.get_palette_no();
                 // パレット番号は0-max_palette_countまでを取る。
@@ -244,7 +251,7 @@ fn judge_combo_key() -> ComboKey {
                     if usize::MIN == palette_no {
                         max_palette_count
                     } else {
-                        (palette_no - 1) % (max_palette_count + 1)
+                        palette_no - 1
                     }
                 } else {
                     (palette_no + 1) % (max_palette_count + 1)
