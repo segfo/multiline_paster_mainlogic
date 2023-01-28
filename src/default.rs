@@ -259,104 +259,147 @@ pub fn eh_init() {
     for _ in 0..255 {
         eh_table.push(Box::new(move |_, _| ComboKey::None));
     }
-    let eh_c_key: Vec<Box<dyn Fn() -> ComboKey>> = vec![
-        // EhKeyState::None
-        Box::new(|| {
-            async_std::task::spawn(copy_clipboard());
-            ComboKey::Combo(2)
-        }),
-        // EhKeyState::Alt
-        Box::new(|| {
-            async_std::task::spawn(reset_clipboard());
-            ComboKey::Combo(3)
-        }),
-    ];
-    eh_table['V' as usize] = Box::new(move |_, _| {
+    // CTRL+C と CTRL+ALT+Cが押された時の定義
+    eh_table['C' as usize] = Box::new(move |_, ks| {
+        let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
+            // EhKeyState::None
+            Box::new(|| {
+                async_std::task::spawn(copy_clipboard());
+                ComboKey::Combo(2)
+            }),
+            // EhKeyState::Alt
+            Box::new(|| {
+                async_std::task::spawn(reset_clipboard());
+                ComboKey::Combo(3)
+            }),
+        ];
+        eh[ks as usize]()
+    });
+    // CTRL+Vが押された時の定義
+    eh_table['V' as usize] = Box::new(move |_, ks| {
         // 基本的に重たい操作なので非同期で行う
         // 意訳：さっさとフックプロシージャから復帰しないとキーボードがハングする。
         // ただし、Clipboardをロックしてから戻らないとだめ。
-        let cb_lock_wait = Arc::new((Mutex::new(false), Condvar::new()));
-        async_std::task::spawn(paste(cb_lock_wait.clone()));
-        let (lock, _cond) = &*cb_lock_wait;
-        lock.lock().unwrap(); // クリップボードがロックされるまで待つ。
-        ComboKey::Combo(1)
+        let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
+            Box::new(|| {
+                let cb_lock_wait = Arc::new((Mutex::new(false), Condvar::new()));
+                async_std::task::spawn(paste(cb_lock_wait.clone()));
+                let (lock, _cond) = &*cb_lock_wait;
+                lock.lock().unwrap(); // クリップボードがロックされるまで待つ。
+                ComboKey::Combo(1)
+            }),
+            Box::new(|| ComboKey::None),
+        ];
+        eh[ks as usize]()
     });
-    eh_table['C' as usize] = Box::new(move |_, ks| eh_c_key[ks as usize]());
-    eh_table['0' as usize] = Box::new(move |_, _| {
-        let mode = unsafe { &mut g_mode.write().unwrap() };
-        let hook_mode = mode.get_hook_mode();
-        if hook_mode == HookMode::Override {
-            mode.set_hook_mode(HookMode::OsStandard);
-            println!("♻️  コピー・ペーストに関するホットキーをOSの既定動作に戻します。");
-            ComboKey::None
-        } else if hook_mode == HookMode::OsStandard {
-            mode.set_hook_mode(HookMode::Override);
-            println!("🖥️  コピー・ペーストに関するホットキーを有効化しました。");
-            ComboKey::Combo(4)
-        } else {
-            ComboKey::Combo(3)
-        }
-    });
-    eh_table['Z' as usize] = Box::new(move |_, _| {
-        async_std::task::spawn(undo_clipboard());
-        return ComboKey::Combo(0);
-    });
-    for i in 0x31..=0x39 {
-        eh_table[i] = Box::new(move |_, _| {
-            // 初期パレットは0
-            let palette_no = unsafe { &mut g_mode.read().unwrap().get_palette_no() };
-            let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
-            // let key = vk - 0x31;
-            let key = i - 0x31;
-            let key = MAX_MODIFIER_PALETTES * (*palette_no) + key;
-            let state = pm.get_plugin_activate_state_with_order(key);
-            if let Some((plugin_name, state)) = state {
-                let state = if state == PluginActivateState::Activate {
-                    PluginActivateState::Disable
+    // 0が押されたときの定義
+    eh_table['0' as usize] = Box::new(move |_, ks| {
+        let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
+            // EhKeyState::None
+            Box::new(|| ComboKey::None),
+            // EhKeyState::Alt
+            Box::new(|| {
+                let mode = unsafe { &mut g_mode.write().unwrap() };
+                let hook_mode = mode.get_hook_mode();
+                if hook_mode == HookMode::Override {
+                    mode.set_hook_mode(HookMode::OsStandard);
+                    println!("♻️  コピー・ペーストに関するホットキーをOSの既定動作に戻します。");
+                    ComboKey::None
+                } else if hook_mode == HookMode::OsStandard {
+                    mode.set_hook_mode(HookMode::Override);
+                    println!("🖥️  コピー・ペーストに関するホットキーを有効化しました。");
+                    ComboKey::Combo(4)
                 } else {
-                    PluginActivateState::Activate
-                };
-                let result = pm.set_plugin_activate_state_with_order(key, state);
-                let (emoji, s) = match result {
-                    Some(s) => {
-                        if s == PluginActivateState::Activate {
-                            ("✅", "が有効化されました")
+                    ComboKey::Combo(3)
+                }
+            }),
+        ];
+        eh[ks as usize]()
+    });
+
+    eh_table['Z' as usize] = Box::new(move |_, ks| {
+        let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
+            // EhKeyState::None
+            Box::new(|| ComboKey::None),
+            // EhKeyState::Alt
+            Box::new(|| {
+                async_std::task::spawn(undo_clipboard());
+                ComboKey::Combo(0)
+            }),
+        ];
+        eh[ks as usize]()
+    });
+    for vkey in 0x31..=0x39 {
+        eh_table[vkey] = Box::new(move |_, ks| {
+            let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
+                // EhKeyState::None
+                Box::new(|| ComboKey::None),
+                // EhKeyState::Alt
+                Box::new(|| {
+                    // 初期パレットは0
+                    let palette_no = unsafe { &mut g_mode.read().unwrap().get_palette_no() };
+                    let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
+                    let key = vkey - 0x31;
+                    let key = MAX_MODIFIER_PALETTES * (*palette_no) + key;
+                    let state = pm.get_plugin_activate_state_with_order(key);
+                    if let Some((plugin_name, state)) = state {
+                        let state = if state == PluginActivateState::Activate {
+                            PluginActivateState::Disable
                         } else {
-                            ("🚫", "が無効化されました")
-                        }
-                    }
-                    None => ("❌", "はロードされていません"),
-                };
-                println!("{emoji}  モディファイア \"{plugin_name}\" {s}");
-            };
-            ComboKey::Combo(4)
+                            PluginActivateState::Activate
+                        };
+                        let result = pm.set_plugin_activate_state_with_order(key, state);
+                        let (emoji, s) = match result {
+                            Some(s) => {
+                                if s == PluginActivateState::Activate {
+                                    ("✅", "が有効化されました")
+                                } else {
+                                    ("🚫", "が無効化されました")
+                                }
+                            }
+                            None => ("❌", "はロードされていません"),
+                        };
+                        println!("{emoji}  モディファイア \"{plugin_name}\" {s}");
+                    };
+                    ComboKey::Combo(4)
+                }),
+            ];
+            eh[ks as usize]()
         });
     }
-    eh_table['Q' as usize] = Box::new(move |lmap, _| {
-        let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
-        // 最大パレット番号
-        let load_modifier_counts = pm.loaded_plugin_counts();
-        if load_modifier_counts == 0 {
-            return ComboKey::Combo(4);
-        }
-        let max_palette_count = (load_modifier_counts - 1) / MAX_MODIFIER_PALETTES;
-        let mode = unsafe { &mut g_mode.write().unwrap() };
-        let palette_no = mode.get_palette_no();
-        // パレット番号は0-max_palette_countまでを取る。
-        let palette_no = if lmap[VK_LSHIFT.0 as usize] {
-            if usize::MIN == palette_no {
-                max_palette_count
-            } else {
-                palette_no - 1
-            }
-        } else {
-            (palette_no + 1) % (max_palette_count + 1)
-        };
-        mode.set_palette_no(palette_no);
-        println!("📝  {} 番パレットに切り替わりました", palette_no);
-        println!("📝  現在のパレットにセットされているモディファイアは以下の通りです。");
-        show_current_mod_palette(&mut pm, palette_no);
-        ComboKey::Combo(4)
+    eh_table['Q' as usize] = Box::new(move |lmap, ks| {
+        let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
+            // EhKeyState::None
+            Box::new(|| ComboKey::None),
+            // EhKeyState::Alt
+            Box::new(|| {
+                let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
+                // 最大パレット番号
+                let load_modifier_counts = pm.loaded_plugin_counts();
+                if load_modifier_counts == 0 {
+                    return ComboKey::Combo(4);
+                }
+                let max_palette_count = (load_modifier_counts - 1) / MAX_MODIFIER_PALETTES;
+                let mode = unsafe { &mut g_mode.write().unwrap() };
+                let palette_no = mode.get_palette_no();
+                // パレット番号は0-max_palette_countまでを取る。
+                let palette_no = if lmap[VK_LSHIFT.0 as usize] {
+                    if usize::MIN == palette_no {
+                        max_palette_count
+                    } else {
+                        palette_no - 1
+                    }
+                } else {
+                    (palette_no + 1) % (max_palette_count + 1)
+                };
+                mode.set_palette_no(palette_no);
+                println!("📝  {} 番パレットに切り替わりました", palette_no);
+                println!("📝  現在のパレットにセットされているモディファイアは以下の通りです。");
+                show_current_mod_palette(&mut pm, palette_no);
+                ComboKey::Combo(4)
+            }),
+        ];
+        eh[ks as usize]()
     })
 }
 
@@ -373,15 +416,15 @@ fn judge_combo_key(vk: usize) -> ComboKey {
             // HookMode::OsStandard時は、CTRL+ALT+0以外を全て無効化する。
             if hook_mode == HookMode::OsStandard {
                 if vk == 0x30 {
-                    return eh_table[vk](lmap,EhKeyState::Alt);
+                    return eh_table[vk](lmap, EhKeyState::Alt);
                 }
                 return ComboKey::None;
             }
-            return eh_table[vk](lmap,EhKeyState::Alt);
+            return eh_table[vk](lmap, EhKeyState::Alt);
         }
         // HookMode::OsStandard時は、CTRL+ALT+0以外を全て無効化する。
         if hook_mode == HookMode::Override {
-            return eh_table[vk](lmap,EhKeyState::None);
+            return eh_table[vk](lmap, EhKeyState::None);
         }
     }
     ComboKey::None
