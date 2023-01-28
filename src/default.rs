@@ -48,7 +48,7 @@ pub fn load_encoder(encoder_list: Vec<String>) {
     }
     println!("モディファイアの読み込みが完了しました。🎉");
     let palette_no = unsafe { g_mode.read().unwrap().get_palette_no() };
-    println!("📝現在のパレットに存在するモディファイアは以下の通りです。");
+    println!("📝現在のパレットにセットされているモディファイアは以下の通りです。");
     show_current_mod_palette(&mut pm, palette_no);
 }
 
@@ -253,7 +253,7 @@ fn judge_combo_key() -> ComboKey {
                     println!("先に進む");
                 }
                 println!("📝パレット番号が {} に切り替わりました", palette_no);
-                println!("📝現在のパレットに存在するモディファイアは以下のとおりです");
+                println!("📝現在のパレットにセットされているモディファイアは以下の通りです。");
                 let palette_no = mode.get_palette_no();
                 show_current_mod_palette(&mut pm, palette_no);
             }
@@ -364,13 +364,16 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         .char_build('v')
         .iter()
         .for_each(|key_code| kbd.append_input_chain(key_code.clone()));
-    kbd.append_input_chain(
-        KeycodeBuilder::default()
-            .vk(VK_LCONTROL.0)
-            .scan_code(virtual_key_to_scancode(VK_LCONTROL))
-            .key_send_mode(KeySendMode::KeyUp)
-            .build(),
-    );
+    let lmap = unsafe { map.read().unwrap() };
+    if lmap[VK_LCONTROL.0 as usize]==false {
+        kbd.append_input_chain(
+            KeycodeBuilder::default()
+                .vk(VK_LCONTROL.0)
+                .scan_code(virtual_key_to_scancode(VK_LCONTROL))
+                .key_send_mode(KeySendMode::KeyUp)
+                .build(),
+        );
+    }
     kbd.send_key();
 }
 
