@@ -307,7 +307,7 @@ pub fn eh_init() {
                     ComboKey::None
                 } else if hook_mode == HookMode::OsStandard {
                     mode.set_hook_mode(HookMode::Override);
-                    println!("🔓  コピー・ペーストに関するホットキーを有効化しました。");
+                    println!("✅  コピー・ペーストに関するホットキーを有効化しました。");
                     ComboKey::Combo(4)
                 } else {
                     ComboKey::Combo(3)
