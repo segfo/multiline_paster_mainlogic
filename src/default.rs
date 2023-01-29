@@ -114,10 +114,12 @@ pub fn update_clipboard() {
     let mut in_copy = unsafe { cb_in_copy.write().unwrap() };
 
     if *in_copy {
+        #[cfg(debug_assertions)]
         println!("コピー操作によりclipboardが変更された。");
         async_std::task::spawn(copy_clipboard());
         *in_copy = false;
     } else {
+        #[cfg(debug_assertions)]
         println!("その他操作によりclipboardが変更された");
     }
 }
