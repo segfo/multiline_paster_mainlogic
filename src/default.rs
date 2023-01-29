@@ -117,11 +117,11 @@ pub fn load_encoder(encoder_list: Vec<String>) {
     }
     for encoder in &encoder_list {
         if encoder.len() == 0 {
-            println!("🔥  モディファイアの設定に空白文字が指定されています。このモディファイアは読まれません。");
+            println!("❌  モディファイアの設定に空白文字が指定されています。このモディファイアは読まれません。");
             continue;
         }
         if let Err(e) = pm.load_plugin(encoder) {
-            println!("🔥  モディファイア \"{encoder}\" が読み込めませんでした。({e})");
+            println!("❌  モディファイア \"{encoder}\" が読み込めませんでした。({e})");
             continue;
         }
         println!("📘  {} を読み込みました。", encoder);
@@ -132,7 +132,28 @@ pub fn load_encoder(encoder_list: Vec<String>) {
     show_current_mod_palette(&mut pm, palette_no);
 }
 
-////
+static mut gdll: Lazy<Mutex<libloading::Library>> = Lazy::new(|| {
+    Mutex::new(unsafe {
+        match libloading::Library::new("ignore_key.dll") {
+            Err(e) => {
+                println!("🔴  必須ライブラリ ignore_key.dll が読み込めませんでした。");
+                std::process::exit(-1);
+            }
+            Ok(lib) => lib,
+        }
+    })
+});
+
+type SetHook = unsafe extern "C" fn() -> bool;
+
+fn enable_ctrl_v() {
+    let dll = unsafe { gdll.lock().unwrap() };
+    // 有効化する
+    let notice_ctrl_v: libloading::Symbol<SetHook> = unsafe { dll.get(b"notice_ctrl_v").unwrap() };
+    unsafe {
+        notice_ctrl_v();
+    }
+}
 pub fn key_down(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
     if stroke_msg.flags.0 & (LLKHF_INJECTED.0 | LLKHF_LOWER_IL_INJECTED.0) == 0
         || stroke_msg.dwExtraInfo == 0
@@ -251,6 +272,11 @@ fn show_current_mod_palette(pm: &mut PluginManager, palette_no: usize) {
 
 // キーイベントハンドラの初期化を行う。初期化時に呼び出される。
 pub fn eh_init() {
+    let dll = unsafe { gdll.lock().unwrap() };
+    unsafe {
+        let sethook: libloading::Symbol<SetHook> = dll.get(b"sethook").unwrap();
+        sethook();
+    }
     let mut eh_table = unsafe { EH_CTL.write().unwrap() };
     for _ in 0..255 {
         eh_table.push(Box::new(move |_, _| ComboKey::None));
@@ -278,6 +304,13 @@ pub fn eh_init() {
         // ただし、Clipboardをロックしてから戻らないとだめ。
         let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
             Box::new(|| {
+                // CTRL+Vの無効化
+                let dll = unsafe { gdll.lock().unwrap() };
+                let ignore_ctrl_v: libloading::Symbol<SetHook> =
+                    unsafe { dll.get(b"ignore_ctrl_v").unwrap() };
+                unsafe {
+                    ignore_ctrl_v();
+                }
                 let cb_lock_wait = Arc::new((Mutex::new(false), Condvar::new()));
                 async_std::task::spawn(paste(cb_lock_wait.clone()));
                 let (lock, _cond) = &*cb_lock_wait;
@@ -483,6 +516,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         EmptyClipboard();
         if cb_data.get_clipboard_lines() == 0 {
             println!("クリップボードにデータがありません。");
+            enable_ctrl_v();
             return;
         }
         // オプションをロードする
@@ -514,7 +548,9 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
                     .for_each(|keycode| kbd.append_input_chain(keycode.clone()));
             }
             for _i in 0..len {
-                if paste_impl(&mut cb_data)!=InputMode::DirectKeyInput{break;}
+                if paste_impl(&mut cb_data) != InputMode::DirectKeyInput {
+                    break;
+                }
                 kbd.send_key();
                 // キーストロークとの間に数ミリ秒の待機時間を設ける
                 std::thread::sleep(Duration::from_millis(get_line_delay_msec))
@@ -529,6 +565,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
             mode.get_input_mode()
         }
     };
+    enable_ctrl_v();
     // Clipboard以外ならキー入力は行わない。
     if input_mode == InputMode::DirectKeyInput {
         return;
@@ -596,7 +633,7 @@ unsafe fn load_data_from_clipboard(cb_data: &mut ClipboardData) -> Option<()> {
 }
 
 type EncodeFunc = unsafe extern "C" fn(*const u8, usize) -> EncodedString;
-unsafe fn paste_impl(cb: &mut ClipboardData) ->InputMode {
+unsafe fn paste_impl(cb: &mut ClipboardData) -> InputMode {
     let s = cb.pop_back().unwrap();
     // Encoderモディファイア（仮）を呼び出す。
     let s = unsafe {
@@ -612,7 +649,7 @@ unsafe fn paste_impl(cb: &mut ClipboardData) ->InputMode {
         match String::from_utf8(encoded) {
             Ok(s) => s,
             Err(e) => {
-                println!("🔥  モディファイアによるエンコードに失敗したため、ロールバックします（返却値がUTF-8文字列ではありません / {e}）");
+                println!("🔄  モディファイアによるエンコードに失敗したため、ロールバックします（返却値がUTF-8文字列ではありません / {e}）");
                 s
             }
         }
@@ -680,7 +717,9 @@ unsafe fn paste_impl(cb: &mut ClipboardData) ->InputMode {
         );
         kbd.send_key();
     } else {
-        if s.len()==0{return input_mode;}
+        if s.len() == 0 {
+            return input_mode;
+        }
         let data = OsString::from(s).encode_wide().collect::<Vec<u16>>();
         let strdata_len = data.len() * 2;
         let data_ptr = data.as_ptr();
