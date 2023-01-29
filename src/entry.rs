@@ -15,8 +15,8 @@ pub extern "C" fn key_up(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginRe
 
 #[no_mangle]
 pub extern "C" fn init_plugin() {
-    println!("🟢  起動しました。");
     let (run_mode,config) = crate::config::init();
+    println!("🟢  起動しました。");
     if let Some(encoder_list) = config.text_modifiers {
         crate::default::load_encoder(encoder_list);
     }

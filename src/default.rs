@@ -244,11 +244,7 @@ fn show_current_mod_palette(pm: &mut PluginManager, palette_no: usize) {
         println!(
             "[{}] {plugin_name} {about} ({})",
             slot_no + 1,
-            if state == PluginActivateState::Activate {
-                "✅有効"
-            } else {
-                "🚫無効"
-            }
+            ["✅有効", "🚫無効"][state as usize]
         );
     }
 }
@@ -350,13 +346,8 @@ pub fn eh_init() {
                         };
                         let result = pm.set_plugin_activate_state_with_order(key, state);
                         let (emoji, s) = match result {
-                            Some(s) => {
-                                if s == PluginActivateState::Activate {
-                                    ("✅", "が有効化されました")
-                                } else {
-                                    ("🚫", "が無効化されました")
-                                }
-                            }
+                            Some(s) => [("✅", "が有効化されました"), ("🚫", "が無効化されました")]
+                                [s as usize],
                             None => ("❌", "はロードされていません"),
                         };
                         println!("{emoji}  モディファイア \"{plugin_name}\" {s}");
