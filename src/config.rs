@@ -167,6 +167,9 @@ impl RunMode {
     pub fn set_burst_mode(&mut self, burst_mode: bool) {
         self.burst_mode = burst_mode
     }
+    pub fn get_burst_mode(&self)->bool {
+        self.burst_mode
+    }
     pub fn set_input_mode(&mut self, input_mode: InputMode) {
         self.input_mode = input_mode;
     }

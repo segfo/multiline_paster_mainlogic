@@ -400,7 +400,50 @@ pub fn eh_init() {
             }),
         ];
         eh[ks as usize]()
-    })
+    });
+    eh_table['M' as usize] = Box::new(move |lmap, ks| {
+        let input_mode: Vec<Box<dyn Fn(bool) -> (bool, InputMode)>> = vec![
+            // EhKeyState::None
+            Box::new(|current_burst| (current_burst, InputMode::DirectKeyInput)),
+            Box::new(|_| (false, InputMode::Clipboard)),
+        ];
+        let burst_mode: Vec<Box<dyn Fn(InputMode) -> InputMode>> =
+            vec![Box::new(|im| im), Box::new(|_im| InputMode::DirectKeyInput)];
+        let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
+            // EhKeyState::None
+            Box::new(|| ComboKey::None),
+            // EhKeyState::Alt
+            Box::new(|| {
+                let mut mode = unsafe { g_mode.write().unwrap() };
+                if lmap[VK_LSHIFT.0 as usize] {
+                    // InputMode: CTRL+ALT+SHIFT+M
+                    let im = mode.get_input_mode();
+                    let (burst, im) = input_mode[im as usize](mode.get_burst_mode());
+                    mode.set_input_mode(im);
+                    let old_burst = mode.get_burst_mode();
+                    mode.set_burst_mode(burst);
+                    println!(
+                        "{}モードに切り替えました。{}",
+                        ["📋  クリップボード入力", "🎹  キーボードエミュレーション"][im as usize],
+                        ["", "（バーストモードが無効化されました。）"][old_burst as usize]
+                    );
+                } else {
+                    let current_burst_mode = !mode.get_burst_mode();
+                    mode.set_burst_mode(current_burst_mode);
+                    // バーストモードの場合は、キーボード入力でなければならない
+                    // インプットモードを変更する。
+                    let im = burst_mode[current_burst_mode as usize](mode.get_input_mode());
+                    mode.set_input_mode(im);
+                    println!(
+                        "{}入力モードに切り替えました。",
+                        ["🔂  通常", "🔁  バースト"][current_burst_mode as usize]
+                    );
+                }
+                ComboKey::Combo(4)
+            }),
+        ];
+        eh[ks as usize]()
+    });
 }
 
 fn judge_combo_key(vk: usize) -> ComboKey {
@@ -463,7 +506,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
             )
         };
 
-        if is_burst_mode {
+        if is_burst_mode && input_mode == InputMode::DirectKeyInput {
             let mut kbd = Keyboard::new();
             let len = cb_data.get_clipboard_lines();
             kbd.new_delay(char_delay_msec);
