@@ -680,6 +680,7 @@ unsafe fn paste_impl(cb: &mut ClipboardData) ->InputMode {
         );
         kbd.send_key();
     } else {
+        if s.len()==0{return input_mode;}
         let data = OsString::from(s).encode_wide().collect::<Vec<u16>>();
         let strdata_len = data.len() * 2;
         let data_ptr = data.as_ptr();
