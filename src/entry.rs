@@ -30,3 +30,8 @@ pub extern "C" fn about()->EncodedString {
     *s="メインロジックDLL".as_bytes().to_vec();
     EncodedString::new(s.as_ptr(), s.len())
 }
+
+#[no_mangle]
+extern "C" fn update_clipboard(){
+    crate::default::update_clipboard();
+}

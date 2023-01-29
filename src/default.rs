@@ -5,7 +5,7 @@ use send_input::keyboard::windows::*;
 use std::ffi::{CString, OsString};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::sync::{Arc, Condvar};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{
     collections::VecDeque,
     sync::{Mutex, RwLock},
@@ -109,7 +109,18 @@ pub fn set_mode(mode: RunMode) {
         *locked_gmode = mode;
     };
 }
+static mut cb_in_copy: Lazy<RwLock<bool>> = Lazy::new(|| RwLock::new(false));
+pub fn update_clipboard() {
+    let mut in_copy = unsafe { cb_in_copy.write().unwrap() };
 
+    if *in_copy {
+        println!("コピー操作によりclipboardが変更された。");
+        async_std::task::spawn(copy_clipboard());
+        *in_copy = false;
+    } else {
+        println!("その他操作によりclipboardが変更された");
+    }
+}
 pub fn load_encoder(encoder_list: Vec<String>) {
     let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
     if encoder_list.len() == 0 {
@@ -286,7 +297,24 @@ pub fn eh_init() {
         let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
             // EhKeyState::None
             Box::new(|| {
-                async_std::task::spawn(copy_clipboard());
+                let mut in_copy = unsafe { cb_in_copy.write().unwrap() };
+                *in_copy = true;
+                ComboKey::Combo(2)
+            }),
+            // EhKeyState::Alt
+            Box::new(|| {
+                async_std::task::spawn(reset_clipboard());
+                ComboKey::Combo(3)
+            }),
+        ];
+        eh[ks as usize]()
+    });
+    eh_table['X' as usize] = Box::new(move |_, ks| {
+        let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
+            // EhKeyState::None
+            Box::new(|| {
+                let mut in_copy = unsafe { cb_in_copy.write().unwrap() };
+                *in_copy = true;
                 ComboKey::Combo(2)
             }),
             // EhKeyState::Alt
@@ -314,7 +342,7 @@ pub fn eh_init() {
                 let cb_lock_wait = Arc::new((Mutex::new(false), Condvar::new()));
                 async_std::task::spawn(paste(cb_lock_wait.clone()));
                 let (lock, _cond) = &*cb_lock_wait;
-                lock.lock().unwrap(); // クリップボードがロックされるまで待つ。
+                let _lock = lock.lock().unwrap(); // クリップボードがロックされるまで待つ。
                 ComboKey::Combo(1)
             }),
             Box::new(|| ComboKey::None),
@@ -498,6 +526,7 @@ fn judge_combo_key(vk: usize) -> ComboKey {
 }
 
 pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
+    let start = Instant::now();
     let mutex = unsafe { thread_mutex.lock().unwrap() };
     let input_mode = unsafe {
         // DropTraitを有効にするために変数に束縛する
@@ -558,8 +587,8 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         } else {
             paste_impl(&mut cb_data);
         }
-        let wait = g_mode.read().unwrap().get_copy_wait_millis();
-        std::thread::sleep(Duration::from_millis(wait));
+        // let wait = g_mode.read().unwrap().get_copy_wait_millis();
+        // std::thread::sleep(Duration::from_millis(wait));
         {
             let mode = g_mode.read().unwrap();
             mode.get_input_mode()
@@ -570,34 +599,37 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
     if input_mode == InputMode::DirectKeyInput {
         return;
     }
-    // クリップボードモードなら
-    // 強制的にペーストさせる。
-    let mut kbd = Keyboard::new();
-    kbd.append_input_chain(
-        KeycodeBuilder::default()
-            .vk(VK_LCONTROL.0)
-            .scan_code(virtual_key_to_scancode(VK_LCONTROL))
-            .key_send_mode(KeySendMode::KeyDown)
-            .build(),
-    );
-    KeycodeBuilder::default()
-        .char_build('v')
-        .iter()
-        .for_each(|key_code| kbd.append_input_chain(key_code.clone()));
-    let l_ctrl = unsafe {
-        let lmap = map.read().unwrap();
-        lmap[VK_LCONTROL.0 as usize]
-    };
-    if l_ctrl == false {
+    let end = start.elapsed();
+    if end.subsec_millis() > 300 {
+        // 処理に300ms以上かかっていたら、キー入力は捨てられているので
+        // クリップボードモードの場合はもう一度CTRL+Vストロークを送信して強制的にペーストさせる。
+        let mut kbd = Keyboard::new();
         kbd.append_input_chain(
             KeycodeBuilder::default()
                 .vk(VK_LCONTROL.0)
                 .scan_code(virtual_key_to_scancode(VK_LCONTROL))
-                .key_send_mode(KeySendMode::KeyUp)
+                .key_send_mode(KeySendMode::KeyDown)
                 .build(),
         );
+        KeycodeBuilder::default()
+            .char_build('v')
+            .iter()
+            .for_each(|key_code| kbd.append_input_chain(key_code.clone()));
+        let l_ctrl = unsafe {
+            let lmap = map.read().unwrap();
+            lmap[VK_LCONTROL.0 as usize]
+        };
+        if l_ctrl == false {
+            kbd.append_input_chain(
+                KeycodeBuilder::default()
+                    .vk(VK_LCONTROL.0)
+                    .scan_code(virtual_key_to_scancode(VK_LCONTROL))
+                    .key_send_mode(KeySendMode::KeyUp)
+                    .build(),
+            );
+        }
+        kbd.send_key();
     }
-    kbd.send_key();
 }
 
 unsafe fn load_data_from_clipboard(cb_data: &mut ClipboardData) -> Option<()> {
@@ -700,6 +732,7 @@ unsafe fn paste_impl(cb: &mut ClipboardData) -> InputMode {
                 .iter()
                 .for_each(|key_code| kbd.append_input_chain(key_code.clone()));
         }
+        enable_ctrl_v();
         kbd.send_key();
         kbd.clear_input_chain();
         // CTRLキーが押されている状況をチェックしてチェーンに登録する
