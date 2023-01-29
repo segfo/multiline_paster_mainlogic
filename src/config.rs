@@ -111,7 +111,7 @@ impl Default for Config {
             line_delay_msec: 200,
             char_delay_msec: 0,
             copy_wait_msec: 250,
-            max_line_length: 512,
+            max_line_length: 256,
             text_modifiers: None,
         }
     }

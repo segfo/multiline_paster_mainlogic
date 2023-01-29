@@ -514,7 +514,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
                     .for_each(|keycode| kbd.append_input_chain(keycode.clone()));
             }
             for _i in 0..len {
-                paste_impl(&mut cb_data);
+                if paste_impl(&mut cb_data)!=InputMode::DirectKeyInput{break;}
                 kbd.send_key();
                 // キーストロークとの間に数ミリ秒の待機時間を設ける
                 std::thread::sleep(Duration::from_millis(get_line_delay_msec))
@@ -524,7 +524,10 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         }
         let wait = g_mode.read().unwrap().get_copy_wait_millis();
         std::thread::sleep(Duration::from_millis(wait));
-        input_mode
+        {
+            let mode = g_mode.read().unwrap();
+            mode.get_input_mode()
+        }
     };
     // Clipboard以外ならキー入力は行わない。
     if input_mode == InputMode::DirectKeyInput {
@@ -562,7 +565,6 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
 
 unsafe fn load_data_from_clipboard(cb_data: &mut ClipboardData) -> Option<()> {
     let h_text = GetClipboardData(CF_UNICODETEXT.0);
-    let line_len_max = unsafe { g_mode.read().unwrap().get_max_line_len() };
     match h_text {
         Err(_) => None,
         Ok(h_text) => {
@@ -575,10 +577,6 @@ unsafe fn load_data_from_clipboard(cb_data: &mut ClipboardData) -> Option<()> {
             for line in text.lines() {
                 let line_len = line.len();
                 if line_len != 0 {
-                    if line_len_max > 0 && line_len >= line_len_max {
-                        println!("1行が長過ぎる文字列({}文字以上の行)をコピーしようとしたため、当該行はスキップしました。",line_len_max);
-                        continue;
-                    }
                     // cb.push_front(line.to_owned());
                     cb_data.add_clipboard(line.to_owned());
                 } else {
@@ -598,7 +596,7 @@ unsafe fn load_data_from_clipboard(cb_data: &mut ClipboardData) -> Option<()> {
 }
 
 type EncodeFunc = unsafe extern "C" fn(*const u8, usize) -> EncodedString;
-unsafe fn paste_impl(cb: &mut ClipboardData) {
+unsafe fn paste_impl(cb: &mut ClipboardData) ->InputMode {
     let s = cb.pop_back().unwrap();
     // Encoderモディファイア（仮）を呼び出す。
     let s = unsafe {
@@ -619,12 +617,28 @@ unsafe fn paste_impl(cb: &mut ClipboardData) {
             }
         }
     };
-    let (input_mode, char_delay_msec) = {
+    let (input_mode, char_delay_msec, line_len_max) = {
         let mode = g_mode.read().unwrap();
-        (mode.get_input_mode(), mode.get_char_delay_msec())
+        (
+            mode.get_input_mode(),
+            mode.get_char_delay_msec(),
+            mode.get_max_line_len(),
+        )
     };
 
     show_operation_message("ペースト");
+    let input_mode = if s.len() > line_len_max && input_mode == InputMode::DirectKeyInput {
+        let eh = unsafe { EH_CTL.read().unwrap() };
+        let mut lmap = unsafe { map.write().unwrap() };
+        let shift = VK_LSHIFT.0 as usize;
+        let old_shift = lmap[shift];
+        lmap[shift] = true;
+        eh['M' as usize](&lmap, EhKeyState::Alt);
+        lmap[shift] = old_shift;
+        InputMode::Clipboard
+    } else {
+        input_mode
+    };
     if input_mode == InputMode::DirectKeyInput {
         let is_key_pressed = |vk: usize| -> bool {
             let lmap = map.read().unwrap();
@@ -678,9 +692,11 @@ unsafe fn paste_impl(cb: &mut ClipboardData) {
         );
         match SetClipboardData(CF_UNICODETEXT.0, HANDLE(gdata)) {
             Ok(_handle) => {
+                #[cfg(debug_assertions)]
                 println!("set clipboard success.");
             }
             Err(e) => {
+                #[cfg(debug_assertions)]
                 println!("SetClipboardData failed. {:?}", e);
             }
         }
@@ -688,6 +704,7 @@ unsafe fn paste_impl(cb: &mut ClipboardData) {
         GlobalUnlock(gdata);
         GlobalFree(gdata);
     }
+    input_mode
 }
 
 fn virtual_key_to_scancode(vk: VIRTUAL_KEY) -> u16 {
