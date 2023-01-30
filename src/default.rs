@@ -199,6 +199,7 @@ pub fn key_up(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
 }
 
 async fn undo_clipboard() {
+    print!("⏪  ");
     show_operation_message("クリップボードに対するアンドゥ");
     let mut cb_data = unsafe { clipboard.lock().unwrap() };
     let actual_delete_lines = cb_data.undo_data();
@@ -210,10 +211,8 @@ async fn undo_clipboard() {
 }
 
 async fn copy_clipboard() {
+    print!("💾  ");
     show_operation_message("コピー");
-    // WindowsがCTRL+Cして、クリップボードにデータを格納するまで待機する。
-    let wait = unsafe { g_mode.read().unwrap().get_copy_wait_millis() };
-    std::thread::sleep(Duration::from_millis(wait));
     let mut cb = unsafe { clipboard.lock().unwrap() };
     let iclip = Clipboard::open();
     unsafe {
@@ -222,6 +221,7 @@ async fn copy_clipboard() {
 }
 
 async fn reset_clipboard() {
+    print!("🧺  ");
     show_operation_message("クリップボードデータの削除");
     let mut cb = unsafe { clipboard.lock().unwrap() };
     cb.clipboard_clear();
@@ -596,13 +596,22 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
             mode.get_input_mode()
         }
     };
+    // std::thread::sleep(std::time::Duration::from_millis(1000));
     enable_ctrl_v();
     // Clipboard以外ならキー入力は行わない。
     if input_mode == InputMode::DirectKeyInput {
         return;
     }
     let end = start.elapsed();
-    if end.subsec_millis() > 300 {
+    let elapsed = end.as_millis();
+    println!(
+        "{}  ペースト処理にかかった時間: {} ms",
+        if elapsed >= 50 { "⌛" } else { "⏳" },
+        elapsed
+    );
+    let wait = unsafe { g_mode.read().unwrap().paste_timeout() };
+    if elapsed >= wait as u128 {
+        println!("💨  {wait} ms以上経過しているため、強制ペーストを実行します。");
         // 処理に300ms以上かかっていたら、キー入力は捨てられているので
         // クリップボードモードの場合はもう一度CTRL+Vストロークを送信して強制的にペーストさせる。
         let mut kbd = Keyboard::new();
@@ -696,7 +705,7 @@ unsafe fn paste_impl(cb: &mut ClipboardData) -> InputMode {
             mode.get_max_line_len(),
         )
     };
-
+    print!("📝  ");
     show_operation_message("ペースト");
     let input_mode = if s.len() > line_len_max && input_mode == InputMode::DirectKeyInput {
         let eh = unsafe { EH_CTL.read().unwrap() };

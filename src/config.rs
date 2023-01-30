@@ -100,7 +100,7 @@ pub struct Config {
     pub tabindex_key: String,
     pub line_delay_msec: u64,
     pub char_delay_msec: u64,
-    pub copy_wait_msec: u64,
+    pub paste_timeout: u64,
     pub max_line_length: usize,
     pub text_modifiers: Option<Vec<String>>,
 }
@@ -110,7 +110,7 @@ impl Default for Config {
             tabindex_key: "\t".to_owned(),
             line_delay_msec: 200,
             char_delay_msec: 0,
-            copy_wait_msec: 250,
+            paste_timeout: 250,
             max_line_length: 256,
             text_modifiers: None,
         }
@@ -134,7 +134,7 @@ pub struct RunMode {
     tabindex_keyseq: String,
     line_delay_msec: u64,
     char_delay_msec: u64,
-    copy_wait_msec: u64,
+    paste_timeout: u64,
     max_line_len: usize,
     hook_mode: HookMode,
     palette_no: usize,
@@ -147,7 +147,7 @@ impl Default for RunMode {
             tabindex_keyseq: String::new(),
             line_delay_msec: 200,
             char_delay_msec: 0,
-            copy_wait_msec: 250,
+            paste_timeout: 0,
             max_line_len: 512,
             hook_mode: HookMode::Override,
             palette_no: 0,
@@ -163,6 +163,7 @@ impl RunMode {
         self.line_delay_msec = config.line_delay_msec;
         self.char_delay_msec = config.char_delay_msec;
         self.max_line_len = config.max_line_length;
+        self.paste_timeout = config.paste_timeout;
     }
     pub fn set_burst_mode(&mut self, burst_mode: bool) {
         self.burst_mode = burst_mode
@@ -188,8 +189,8 @@ impl RunMode {
     pub fn get_char_delay_msec(&self) -> u64 {
         self.char_delay_msec
     }
-    pub fn get_copy_wait_millis(&self) -> u64 {
-        self.copy_wait_msec
+    pub fn paste_timeout(&self) -> u64 {
+        self.paste_timeout
     }
     pub fn get_max_line_len(&self) -> usize {
         self.max_line_len
