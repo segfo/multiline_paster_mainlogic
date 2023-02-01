@@ -23,10 +23,10 @@ pub extern "C" fn init_plugin() {
     crate::default::set_mode(run_mode);
 }
 
-static mut about_string: Lazy<Mutex<Vec<u8>>> = Lazy::new(|| Mutex::new(Vec::new()));
+static mut ABOUT_STRING: Lazy<Mutex<Vec<u8>>> = Lazy::new(|| Mutex::new(Vec::new()));
 #[no_mangle]
 pub extern "C" fn about()->EncodedString {
-    let mut s=unsafe{about_string.lock().unwrap()};
+    let mut s=unsafe{ABOUT_STRING.lock().unwrap()};
     *s="メインロジックDLL".as_bytes().to_vec();
     EncodedString::new(s.as_ptr(), s.len())
 }

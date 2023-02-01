@@ -81,7 +81,7 @@ impl CommandLineArgs {
             let mut pm = PluginManager::new(&conf.plugin_directory);
             if let Ok(files) = read_dir(&conf.plugin_directory) {
                 for file in files {
-                    pm.load_plugin(&file);
+                    let _ = pm.load_plugin(&file);
                     pm.set_plugin_activate_state(&file, plugin::PluginActivateState::Activate);
                 }
             };
@@ -168,7 +168,7 @@ impl RunMode {
     pub fn set_burst_mode(&mut self, burst_mode: bool) {
         self.burst_mode = burst_mode
     }
-    pub fn get_burst_mode(&self)->bool {
+    pub fn get_burst_mode(&self) -> bool {
         self.burst_mode
     }
     pub fn set_input_mode(&mut self, input_mode: InputMode) {

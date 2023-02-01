@@ -77,7 +77,7 @@ impl ClipboardData {
         }
         let e = self.copied_lines.len();
         let mut total_deletes = actual_total_deletes;
-        for i in 0..e {
+        for _i in 0..e {
             let lines = self.copied_lines.pop().unwrap();
             if lines <= total_deletes {
                 total_deletes -= lines
@@ -89,10 +89,10 @@ impl ClipboardData {
     }
 }
 
-static mut clipboard: Lazy<Mutex<ClipboardData>> = Lazy::new(|| Mutex::new(ClipboardData::new()));
-static mut thread_mutex: Lazy<Mutex<u32>> = Lazy::new(|| Mutex::new(0));
-static mut map: Lazy<RwLock<Vec<bool>>> = Lazy::new(|| RwLock::new(vec![false; 256]));
-static mut g_mode: Lazy<RwLock<RunMode>> = Lazy::new(|| RwLock::new(RunMode::default()));
+static mut CLIPBOARD: Lazy<Mutex<ClipboardData>> = Lazy::new(|| Mutex::new(ClipboardData::new()));
+static mut THREAD_MUTEX: Lazy<Mutex<u32>> = Lazy::new(|| Mutex::new(0));
+static mut KEY_MAP: Lazy<RwLock<Vec<bool>>> = Lazy::new(|| RwLock::new(vec![false; 256]));
+static mut RUN_MODE: Lazy<RwLock<RunMode>> = Lazy::new(|| RwLock::new(RunMode::default()));
 static mut TXT_MODIFIER: Lazy<RwLock<PluginManager>> = Lazy::new(|| {
     let conf: MasterConfig = ConfigLoader::load_file("config.toml");
     RwLock::new(PluginManager::new(&conf.plugin_directory))
@@ -105,13 +105,13 @@ const MAX_MODIFIER_PALETTES: usize = 9;
 // クリップボード挿入モードか、DirectInputモードで動作するか選択できるようにする。
 pub fn set_mode(mode: RunMode) {
     unsafe {
-        let mut locked_gmode = g_mode.write().unwrap();
+        let mut locked_gmode = RUN_MODE.write().unwrap();
         *locked_gmode = mode;
     };
 }
-static mut cb_in_copy: Lazy<RwLock<bool>> = Lazy::new(|| RwLock::new(false));
+static mut CB_IN_COPY: Lazy<RwLock<bool>> = Lazy::new(|| RwLock::new(false));
 pub fn update_clipboard() {
-    let mut in_copy = unsafe { cb_in_copy.write().unwrap() };
+    let mut in_copy = unsafe { CB_IN_COPY.write().unwrap() };
 
     if *in_copy {
         #[cfg(debug_assertions)]
@@ -140,15 +140,15 @@ pub fn load_encoder(encoder_list: Vec<String>) {
         println!("📘  {} を読み込みました。", encoder);
     }
     println!("🎉  モディファイアの読み込みが完了しました。");
-    let palette_no = unsafe { g_mode.read().unwrap().get_palette_no() };
+    let palette_no = unsafe { RUN_MODE.read().unwrap().get_palette_no() };
     println!("📘  現在のパレット（{palette_no}番パレット）にセットされているモディファイアは以下の通りです。");
     show_current_mod_palette(&mut pm, palette_no);
 }
 
-static mut gdll: Lazy<Mutex<libloading::Library>> = Lazy::new(|| {
+static mut DLL: Lazy<Mutex<libloading::Library>> = Lazy::new(|| {
     Mutex::new(unsafe {
         match libloading::Library::new("ignore_key.dll") {
-            Err(e) => {
+            Err(_e) => {
                 println!("🔴  必須ライブラリ ignore_key.dll が読み込めませんでした。");
                 std::process::exit(-1);
             }
@@ -160,7 +160,7 @@ static mut gdll: Lazy<Mutex<libloading::Library>> = Lazy::new(|| {
 type DllCtrlNoticeApi = unsafe extern "C" fn() -> bool;
 type DllSetHookApi = unsafe extern "C" fn() -> bool;
 fn enable_ctrl_v() {
-    let dll = unsafe { gdll.lock().unwrap() };
+    let dll = unsafe { DLL.lock().unwrap() };
     // 有効化する
     unsafe {
         let notice_ctrl_v: libloading::Symbol<DllCtrlNoticeApi> =
@@ -169,7 +169,7 @@ fn enable_ctrl_v() {
     }
 }
 fn disable_ctrl_v() {
-    let dll = unsafe { gdll.lock().unwrap() };
+    let dll = unsafe { DLL.lock().unwrap() };
     // 無効化する
     unsafe {
         let ignore_ctrl_v: libloading::Symbol<DllCtrlNoticeApi> =
@@ -178,15 +178,15 @@ fn disable_ctrl_v() {
     }
 }
 
-pub fn key_down(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
+pub fn key_down(_keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
     if stroke_msg.flags.0 & (LLKHF_INJECTED.0 | LLKHF_LOWER_IL_INJECTED.0) == 0
         || stroke_msg.dwExtraInfo == 0
     {
         // println!("[key down] stroke={stroke_msg:?}");
         let is_burst = unsafe {
-            let mut lmap = map.write().unwrap();
+            let mut lmap = KEY_MAP.write().unwrap();
             lmap[stroke_msg.vkCode as usize] = true;
-            let mode = g_mode.read().unwrap();
+            let mode = RUN_MODE.read().unwrap();
             mode.is_burst_mode()
         };
         if judge_combo_key(stroke_msg.vkCode as usize) != ComboKey::None && is_burst {
@@ -196,13 +196,13 @@ pub fn key_down(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
     PluginResult::Success
 }
 
-pub fn key_up(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
+pub fn key_up(_keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
     if stroke_msg.flags.0 & (LLKHF_INJECTED.0 | LLKHF_LOWER_IL_INJECTED.0) == 0
         || stroke_msg.dwExtraInfo == 0
     {
         // println!("[key up] stroke={stroke_msg:?}");
         unsafe {
-            let mut lmap = map.write().unwrap();
+            let mut lmap = KEY_MAP.write().unwrap();
             lmap[stroke_msg.vkCode as usize] = false;
         }
     }
@@ -212,7 +212,7 @@ pub fn key_up(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
 async fn undo_clipboard() {
     print!("⏪  ");
     show_operation_message("クリップボードに対するアンドゥ");
-    let mut cb_data = unsafe { clipboard.lock().unwrap() };
+    let mut cb_data = unsafe { CLIPBOARD.lock().unwrap() };
     let actual_delete_lines = cb_data.undo_data();
     println!(
         "削除した行数 {}行 残り {}行",
@@ -224,7 +224,7 @@ async fn undo_clipboard() {
 async fn copy_clipboard() {
     print!("💾  ");
     show_operation_message("コピー");
-    let mut cb = unsafe { clipboard.lock().unwrap() };
+    let mut cb = unsafe { CLIPBOARD.lock().unwrap() };
     let iclip = Clipboard::open();
     unsafe {
         load_data_from_clipboard(&mut cb);
@@ -234,7 +234,7 @@ async fn copy_clipboard() {
 async fn reset_clipboard() {
     print!("🧺  ");
     show_operation_message("クリップボードデータの削除");
-    let mut cb = unsafe { clipboard.lock().unwrap() };
+    let mut cb = unsafe { CLIPBOARD.lock().unwrap() };
     cb.clipboard_clear();
 }
 pub struct Clipboard {}
@@ -296,7 +296,7 @@ fn show_current_mod_palette(pm: &mut PluginManager, palette_no: usize) {
 
 // キーイベントハンドラの初期化を行う。初期化時に呼び出される。
 pub fn eh_init() {
-    let dll = unsafe { gdll.lock().unwrap() };
+    let dll = unsafe { DLL.lock().unwrap() };
     unsafe {
         let sethook: libloading::Symbol<DllSetHookApi> = dll.get(b"sethook").unwrap();
         sethook();
@@ -310,7 +310,7 @@ pub fn eh_init() {
         let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
             // EhKeyState::None
             Box::new(|| {
-                let mut in_copy = unsafe { cb_in_copy.write().unwrap() };
+                let mut in_copy = unsafe { CB_IN_COPY.write().unwrap() };
                 *in_copy = true;
                 ComboKey::Combo(2)
             }),
@@ -326,7 +326,7 @@ pub fn eh_init() {
         let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
             // EhKeyState::None
             Box::new(|| {
-                let mut in_copy = unsafe { cb_in_copy.write().unwrap() };
+                let mut in_copy = unsafe { CB_IN_COPY.write().unwrap() };
                 *in_copy = true;
                 ComboKey::Combo(2)
             }),
@@ -364,7 +364,7 @@ pub fn eh_init() {
             Box::new(|| ComboKey::None),
             // EhKeyState::Alt
             Box::new(|| {
-                let mode = unsafe { &mut g_mode.write().unwrap() };
+                let mode = unsafe { &mut RUN_MODE.write().unwrap() };
                 let hook_mode = mode.get_hook_mode();
                 if hook_mode == HookMode::Override {
                     mode.set_hook_mode(HookMode::OsStandard);
@@ -402,7 +402,7 @@ pub fn eh_init() {
                 // EhKeyState::Alt
                 Box::new(|| {
                     // 初期パレットは0
-                    let palette_no = unsafe { &mut g_mode.read().unwrap().get_palette_no() };
+                    let palette_no = unsafe { &mut RUN_MODE.read().unwrap().get_palette_no() };
                     let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
                     let key = vkey - 0x31;
                     let key = MAX_MODIFIER_PALETTES * (*palette_no) + key;
@@ -440,7 +440,7 @@ pub fn eh_init() {
                     return ComboKey::Combo(4);
                 }
                 let max_palette_count = (load_modifier_counts - 1) / MAX_MODIFIER_PALETTES;
-                let mode = unsafe { &mut g_mode.write().unwrap() };
+                let mode = unsafe { &mut RUN_MODE.write().unwrap() };
                 let palette_no = mode.get_palette_no();
                 // パレット番号は0-max_palette_countまでを取る。
                 let palette_no = if lmap[VK_LSHIFT.0 as usize] {
@@ -474,7 +474,7 @@ pub fn eh_init() {
             Box::new(|| ComboKey::None),
             // EhKeyState::Alt
             Box::new(|| {
-                let mut mode = unsafe { g_mode.write().unwrap() };
+                let mut mode = unsafe { RUN_MODE.write().unwrap() };
                 if lmap[VK_LSHIFT.0 as usize] {
                     // InputMode: CTRL+ALT+SHIFT+M
                     let im = mode.get_input_mode();
@@ -507,11 +507,11 @@ pub fn eh_init() {
 }
 
 fn judge_combo_key(vk: usize) -> ComboKey {
-    let lmap = unsafe { &mut map.read().unwrap() };
+    let lmap = unsafe { &mut KEY_MAP.read().unwrap() };
     if lmap[VK_LCONTROL.0 as usize] == true {
         let eh_table = unsafe { EH_CTL.read().unwrap() };
         let hook_mode = {
-            let mode = unsafe { &mut g_mode.write().unwrap() };
+            let mode = unsafe { &mut RUN_MODE.write().unwrap() };
             mode.get_hook_mode()
         };
         // CTRL+ALTキー
@@ -535,7 +535,7 @@ fn judge_combo_key(vk: usize) -> ComboKey {
 
 pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
     let start = Instant::now();
-    let mutex = unsafe { thread_mutex.lock().unwrap() };
+    let mutex = unsafe { THREAD_MUTEX.lock().unwrap() };
     let input_mode = unsafe {
         // DropTraitを有効にするために変数に束縛する
         // 束縛先の変数は未使用だが、最適化によってOpenClipboardが実行されなくなるので変数束縛は必ず行う。
@@ -549,7 +549,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         *is_lock = true;
         cond.notify_one();
         // クリップボードを開く
-        let mut cb_data = clipboard.lock().unwrap();
+        let mut cb_data = CLIPBOARD.lock().unwrap();
         EmptyClipboard();
         if cb_data.get_clipboard_lines() == 0 {
             println!("クリップボードにデータがありません。");
@@ -558,7 +558,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         }
         // オプションをロードする
         let (is_burst_mode, tabindex_keyseq, get_line_delay_msec, char_delay_msec, input_mode) = {
-            let mode = g_mode.read().unwrap();
+            let mode = RUN_MODE.read().unwrap();
             (
                 mode.is_burst_mode(),
                 mode.get_tabindex_keyseq(),
@@ -598,7 +598,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         // let wait = g_mode.read().unwrap().get_copy_wait_millis();
         // std::thread::sleep(Duration::from_millis(wait));
         {
-            let mode = g_mode.read().unwrap();
+            let mode = RUN_MODE.read().unwrap();
             mode.get_input_mode()
         }
     };
@@ -615,7 +615,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         if elapsed >= 50 { "⌛" } else { "⏳" },
         elapsed
     );
-    let wait = unsafe { g_mode.read().unwrap().paste_timeout() };
+    let wait = unsafe { RUN_MODE.read().unwrap().paste_timeout() };
     if elapsed >= wait as u128 {
         println!("💨  {wait} ms以上経過しているため、強制ペーストを実行します。");
         // 処理に300ms以上かかっていたら、キー入力は捨てられているので
@@ -633,7 +633,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
             .iter()
             .for_each(|key_code| kbd.append_input_chain(key_code.clone()));
         let l_ctrl = unsafe {
-            let lmap = map.read().unwrap();
+            let lmap = KEY_MAP.read().unwrap();
             lmap[VK_LCONTROL.0 as usize]
         };
         if l_ctrl == false {
@@ -704,7 +704,7 @@ unsafe fn paste_impl(cb: &mut ClipboardData) -> InputMode {
         }
     };
     let (input_mode, char_delay_msec, line_len_max) = {
-        let mode = g_mode.read().unwrap();
+        let mode = RUN_MODE.read().unwrap();
         (
             mode.get_input_mode(),
             mode.get_char_delay_msec(),
@@ -715,7 +715,7 @@ unsafe fn paste_impl(cb: &mut ClipboardData) -> InputMode {
     show_operation_message("ペースト");
     let input_mode = if s.len() > line_len_max && input_mode == InputMode::DirectKeyInput {
         let eh = unsafe { EH_CTL.read().unwrap() };
-        let mut lmap = unsafe { map.write().unwrap() };
+        let mut lmap = unsafe { KEY_MAP.write().unwrap() };
         let shift = VK_LSHIFT.0 as usize;
         let old_shift = lmap[shift];
         lmap[shift] = true;
@@ -727,7 +727,7 @@ unsafe fn paste_impl(cb: &mut ClipboardData) -> InputMode {
     };
     if input_mode == InputMode::DirectKeyInput {
         let is_key_pressed = |vk: usize| -> bool {
-            let lmap = map.read().unwrap();
+            let lmap = KEY_MAP.read().unwrap();
             lmap[vk]
         };
         // 現在のキーボードの状況（KeyboardLLHookから取得した状況）に合わせて制御キーの解除と設定を行う。
@@ -780,16 +780,7 @@ unsafe fn paste_impl(cb: &mut ClipboardData) -> InputMode {
             locked_data as *mut u8,
             strdata_len + 2,
         );
-        match SetClipboardData(CF_UNICODETEXT.0, HANDLE(gdata)) {
-            Ok(_handle) => {
-                #[cfg(debug_assertions)]
-                println!("set clipboard success.");
-            }
-            Err(e) => {
-                #[cfg(debug_assertions)]
-                println!("SetClipboardData failed. {:?}", e);
-            }
-        }
+        let _r = SetClipboardData(CF_UNICODETEXT.0, HANDLE(gdata));
         // 終わったらアンロックしてからメモリを開放する
         GlobalUnlock(gdata);
         GlobalFree(gdata);
