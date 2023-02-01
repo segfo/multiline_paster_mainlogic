@@ -147,9 +147,9 @@ pub fn load_encoder(encoder_list: Vec<String>) {
 
 static mut DLL: Lazy<Mutex<libloading::Library>> = Lazy::new(|| {
     Mutex::new(unsafe {
-        match libloading::Library::new("ignore_key.dll") {
+        match libloading::Library::new("inputctl.dll") {
             Err(_e) => {
-                println!("🔴  必須ライブラリ ignore_key.dll が読み込めませんでした。");
+                println!("🔴  必須ライブラリ inputctl.dll が読み込めませんでした。");
                 std::process::exit(-1);
             }
             Ok(lib) => lib,
