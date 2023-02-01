@@ -157,16 +157,27 @@ static mut gdll: Lazy<Mutex<libloading::Library>> = Lazy::new(|| {
     })
 });
 
-type SetHook = unsafe extern "C" fn() -> bool;
-
+type DllCtrlNoticeApi = unsafe extern "C" fn() -> bool;
+type DllSetHookApi = unsafe extern "C" fn() -> bool;
 fn enable_ctrl_v() {
     let dll = unsafe { gdll.lock().unwrap() };
     // 有効化する
-    let notice_ctrl_v: libloading::Symbol<SetHook> = unsafe { dll.get(b"notice_ctrl_v").unwrap() };
     unsafe {
+        let notice_ctrl_v: libloading::Symbol<DllCtrlNoticeApi> =
+            dll.get(b"notice_ctrl_v").unwrap();
         notice_ctrl_v();
     }
 }
+fn disable_ctrl_v() {
+    let dll = unsafe { gdll.lock().unwrap() };
+    // 無効化する
+    unsafe {
+        let ignore_ctrl_v: libloading::Symbol<DllCtrlNoticeApi> =
+            dll.get(b"ignore_ctrl_v").unwrap();
+        ignore_ctrl_v();
+    }
+}
+
 pub fn key_down(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
     if stroke_msg.flags.0 & (LLKHF_INJECTED.0 | LLKHF_LOWER_IL_INJECTED.0) == 0
         || stroke_msg.dwExtraInfo == 0
@@ -287,7 +298,7 @@ fn show_current_mod_palette(pm: &mut PluginManager, palette_no: usize) {
 pub fn eh_init() {
     let dll = unsafe { gdll.lock().unwrap() };
     unsafe {
-        let sethook: libloading::Symbol<SetHook> = dll.get(b"sethook").unwrap();
+        let sethook: libloading::Symbol<DllSetHookApi> = dll.get(b"sethook").unwrap();
         sethook();
     }
     let mut eh_table = unsafe { EH_CTL.write().unwrap() };
@@ -335,12 +346,7 @@ pub fn eh_init() {
         let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
             Box::new(|| {
                 // CTRL+Vの無効化
-                let dll = unsafe { gdll.lock().unwrap() };
-                let ignore_ctrl_v: libloading::Symbol<SetHook> =
-                    unsafe { dll.get(b"ignore_ctrl_v").unwrap() };
-                unsafe {
-                    ignore_ctrl_v();
-                }
+                disable_ctrl_v();
                 let cb_lock_wait = Arc::new((Mutex::new(false), Condvar::new()));
                 async_std::task::spawn(paste(cb_lock_wait.clone()));
                 let (lock, _cond) = &*cb_lock_wait;
