@@ -18,6 +18,7 @@ use windows::Win32::{
 };
 
 // ALTキーが押されているかどうかのステート
+#[derive(Debug, PartialEq)]
 enum EhKeyState {
     None,
     Alt,
@@ -307,202 +308,176 @@ pub fn eh_init() {
     }
     // CTRL+C と CTRL+ALT+Cが押された時の定義
     eh_table['C' as usize] = Box::new(move |_, ks| {
-        let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
-            // EhKeyState::None
-            Box::new(|| {
-                let mut in_copy = unsafe { CB_IN_COPY.write().unwrap() };
-                *in_copy = true;
-                ComboKey::Combo(2)
-            }),
-            // EhKeyState::Alt
-            Box::new(|| {
-                async_std::task::spawn(reset_clipboard());
-                ComboKey::Combo(3)
-            }),
-        ];
-        eh[ks as usize]()
+        if ks == EhKeyState::None {
+            let mut in_copy = unsafe { CB_IN_COPY.write().unwrap() };
+            *in_copy = true;
+            ComboKey::Combo(2)
+        } else {
+            async_std::task::spawn(reset_clipboard());
+            ComboKey::Combo(3)
+        }
     });
     eh_table['X' as usize] = Box::new(move |_, ks| {
-        let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
-            // EhKeyState::None
-            Box::new(|| {
-                let mut in_copy = unsafe { CB_IN_COPY.write().unwrap() };
-                *in_copy = true;
-                ComboKey::Combo(2)
-            }),
-            // EhKeyState::Alt
-            Box::new(|| {
-                async_std::task::spawn(reset_clipboard());
-                ComboKey::Combo(3)
-            }),
-        ];
-        eh[ks as usize]()
+        if ks == EhKeyState::None {
+            let mut in_copy = unsafe { CB_IN_COPY.write().unwrap() };
+            *in_copy = true;
+            ComboKey::Combo(2)
+        } else {
+            async_std::task::spawn(reset_clipboard());
+            ComboKey::Combo(3)
+        }
     });
     // CTRL+Vが押された時の定義
     eh_table['V' as usize] = Box::new(move |_, ks| {
         // 基本的に重たい操作なので非同期で行う
         // 意訳：さっさとフックプロシージャから復帰しないとキーボードがハングする。
         // ただし、Clipboardをロックしてから戻らないとだめ。
-        let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
-            Box::new(|| {
-                // CTRL+Vの無効化
-                disable_ctrl_v();
-                let cb_lock_wait = Arc::new((Mutex::new(false), Condvar::new()));
-                async_std::task::spawn(paste(cb_lock_wait.clone()));
-                let (lock, _cond) = &*cb_lock_wait;
-                let _lock = lock.lock().unwrap(); // クリップボードがロックされるまで待つ。
-                ComboKey::Combo(1)
-            }),
-            Box::new(|| ComboKey::None),
-        ];
-        eh[ks as usize]()
+        if ks == EhKeyState::None {
+            // CTRL+Vの無効化
+            disable_ctrl_v();
+            let cb_lock_wait = Arc::new((Mutex::new(false), Condvar::new()));
+            async_std::task::spawn(paste(cb_lock_wait.clone()));
+            let (lock, _cond) = &*cb_lock_wait;
+            let _lock = lock.lock().unwrap(); // クリップボードがロックされるまで待つ。
+            ComboKey::Combo(1)
+        } else {
+            ComboKey::None
+        }
     });
     // 0が押されたときの定義
     eh_table['0' as usize] = Box::new(move |_, ks| {
-        let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
-            // EhKeyState::None
-            Box::new(|| ComboKey::None),
+        if ks == EhKeyState::None {
+            ComboKey::None
+        } else {
             // EhKeyState::Alt
-            Box::new(|| {
-                let mode = unsafe { &mut RUN_MODE.write().unwrap() };
-                let hook_mode = mode.get_hook_mode();
-                if hook_mode == HookMode::Override {
-                    mode.set_hook_mode(HookMode::OsStandard);
-                    println!("🔒  コピー・ペーストに関するホットキーをOSの既定動作に戻します。");
-                    ComboKey::None
-                } else if hook_mode == HookMode::OsStandard {
-                    mode.set_hook_mode(HookMode::Override);
-                    println!("📋  コピー・ペーストに関するホットキーを有効化しました。");
-                    ComboKey::Combo(4)
-                } else {
-                    ComboKey::Combo(3)
-                }
-            }),
-        ];
-        eh[ks as usize]()
+            let mode = unsafe { &mut RUN_MODE.write().unwrap() };
+            let hook_mode = mode.get_hook_mode();
+            if hook_mode == HookMode::Override {
+                mode.set_hook_mode(HookMode::OsStandard);
+                println!("🔒  コピー・ペーストに関するホットキーをOSの既定動作に戻します。");
+                ComboKey::None
+            } else if hook_mode == HookMode::OsStandard {
+                mode.set_hook_mode(HookMode::Override);
+                println!("📋  コピー・ペーストに関するホットキーを有効化しました。");
+                ComboKey::Combo(4)
+            } else {
+                ComboKey::Combo(3)
+            }
+        }
     });
 
     eh_table['Z' as usize] = Box::new(move |_, ks| {
-        let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
-            // EhKeyState::None
-            Box::new(|| ComboKey::None),
-            // EhKeyState::Alt
-            Box::new(|| {
-                async_std::task::spawn(undo_clipboard());
-                ComboKey::Combo(0)
-            }),
-        ];
-        eh[ks as usize]()
+        if ks == EhKeyState::None {
+            ComboKey::None
+        } else {
+            async_std::task::spawn(undo_clipboard());
+            ComboKey::Combo(0)
+        }
     });
     for vkey in 0x31..=0x39 {
         eh_table[vkey] = Box::new(move |_, ks| {
-            let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
-                // EhKeyState::None
-                Box::new(|| ComboKey::None),
-                // EhKeyState::Alt
-                Box::new(|| {
-                    // 初期パレットは0
-                    let palette_no = unsafe { &mut RUN_MODE.read().unwrap().get_palette_no() };
-                    let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
-                    let key = vkey - 0x31;
-                    let key = MAX_MODIFIER_PALETTES * (*palette_no) + key;
-                    let state = pm.get_plugin_activate_state_with_order(key);
-                    if let Some((plugin_name, state)) = state {
-                        let state = if state == PluginActivateState::Activate {
-                            PluginActivateState::Disable
-                        } else {
-                            PluginActivateState::Activate
-                        };
-                        let result = pm.set_plugin_activate_state_with_order(key, state);
-                        let (emoji, s) = match result {
-                            Some(s) => [("✅", "が有効化されました"), ("🚫", "が無効化されました")]
-                                [s as usize],
-                            None => ("❌", "はロードされていません"),
-                        };
-                        println!("{emoji}  モディファイア \"{plugin_name}\" {s}");
+            if ks == EhKeyState::None {
+                ComboKey::None
+            } else {
+                // 初期パレットは0
+                let palette_no = unsafe { &mut RUN_MODE.read().unwrap().get_palette_no() };
+                let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
+                let key = vkey - 0x31;
+                let key = MAX_MODIFIER_PALETTES * (*palette_no) + key;
+                let state = pm.get_plugin_activate_state_with_order(key);
+                if let Some((plugin_name, state)) = state {
+                    let state = if state == PluginActivateState::Activate {
+                        PluginActivateState::Disable
+                    } else {
+                        PluginActivateState::Activate
                     };
-                    ComboKey::Combo(4)
-                }),
-            ];
-            eh[ks as usize]()
+                    let result = pm.set_plugin_activate_state_with_order(key, state);
+                    let (emoji, s) = match result {
+                        Some(s) => {
+                            [("✅", "が有効化されました"), ("🚫", "が無効化されました")][s as usize]
+                        }
+                        None => ("❌", "はロードされていません"),
+                    };
+                    println!("{emoji}  モディファイア \"{plugin_name}\" {s}");
+                };
+                ComboKey::Combo(4)
+            }
         });
     }
     eh_table['Q' as usize] = Box::new(move |lmap, ks| {
-        let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
+        if ks == EhKeyState::None {
             // EhKeyState::None
-            Box::new(|| ComboKey::None),
+            ComboKey::None
+        } else {
             // EhKeyState::Alt
-            Box::new(|| {
-                let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
-                // 最大パレット番号
-                let load_modifier_counts = pm.loaded_plugin_counts();
-                if load_modifier_counts == 0 {
-                    return ComboKey::Combo(4);
-                }
-                let max_palette_count = (load_modifier_counts - 1) / MAX_MODIFIER_PALETTES;
-                let mode = unsafe { &mut RUN_MODE.write().unwrap() };
-                let palette_no = mode.get_palette_no();
-                // パレット番号は0-max_palette_countまでを取る。
-                let palette_no = if lmap[VK_LSHIFT.0 as usize] {
-                    if usize::MIN == palette_no {
-                        max_palette_count
-                    } else {
-                        palette_no - 1
-                    }
+            let mut pm = unsafe { TXT_MODIFIER.write().unwrap() };
+            // 最大パレット番号
+            let load_modifier_counts = pm.loaded_plugin_counts();
+            if load_modifier_counts == 0 {
+                return ComboKey::Combo(4);
+            }
+            let max_palette_count = (load_modifier_counts - 1) / MAX_MODIFIER_PALETTES;
+            let mode = unsafe { &mut RUN_MODE.write().unwrap() };
+            let palette_no = mode.get_palette_no();
+            // パレット番号は0-max_palette_countまでを取る。
+            let palette_no = if lmap[VK_LSHIFT.0 as usize] {
+                if usize::MIN == palette_no {
+                    max_palette_count
                 } else {
-                    (palette_no + 1) % (max_palette_count + 1)
-                };
-                mode.set_palette_no(palette_no);
-                println!("📝  {} 番パレットに切り替わりました", palette_no);
-                println!("📝  現在のパレットにセットされているモディファイアは以下の通りです。");
-                show_current_mod_palette(&mut pm, palette_no);
-                ComboKey::Combo(4)
-            }),
-        ];
-        eh[ks as usize]()
+                    palette_no - 1
+                }
+            } else {
+                (palette_no + 1) % (max_palette_count + 1)
+            };
+            mode.set_palette_no(palette_no);
+            println!("📝  {} 番パレットに切り替わりました", palette_no);
+            println!("📝  現在のパレットにセットされているモディファイアは以下の通りです。");
+            show_current_mod_palette(&mut pm, palette_no);
+            ComboKey::Combo(4)
+        }
     });
     eh_table['M' as usize] = Box::new(move |lmap, ks| {
-        let input_mode: Vec<Box<dyn Fn(bool) -> (bool, InputMode)>> = vec![
+        if ks == EhKeyState::None {
             // EhKeyState::None
-            Box::new(|current_burst| (current_burst, InputMode::DirectKeyInput)),
-            Box::new(|_| (false, InputMode::Clipboard)),
-        ];
-        let burst_mode: Vec<Box<dyn Fn(InputMode) -> InputMode>> =
-            vec![Box::new(|im| im), Box::new(|_im| InputMode::DirectKeyInput)];
-        let eh: Vec<Box<dyn Fn() -> ComboKey>> = vec![
-            // EhKeyState::None
-            Box::new(|| ComboKey::None),
+            ComboKey::None
+        } else {
             // EhKeyState::Alt
-            Box::new(|| {
-                let mut mode = unsafe { RUN_MODE.write().unwrap() };
-                if lmap[VK_LSHIFT.0 as usize] {
-                    // InputMode: CTRL+ALT+SHIFT+M
-                    let im = mode.get_input_mode();
-                    let (burst, im) = input_mode[im as usize](mode.get_burst_mode());
-                    mode.set_input_mode(im);
-                    let old_burst = mode.get_burst_mode();
-                    mode.set_burst_mode(burst);
-                    println!(
-                        "{}モードに切り替えました。{}",
-                        ["📋  クリップボード入力", "🎹  キーボードエミュレーション"][im as usize],
-                        ["", "（バーストモードが無効化されました。）"][old_burst as usize]
-                    );
+            let mut mode = unsafe { RUN_MODE.write().unwrap() };
+            if lmap[VK_LSHIFT.0 as usize] {
+                // CTRL+ALT+SHIFT+M
+                let im = mode.get_input_mode();
+                let (burst, im) = if im == InputMode::Clipboard {
+                    (mode.is_burst_mode(), InputMode::DirectKeyInput)
                 } else {
-                    let current_burst_mode = !mode.get_burst_mode();
-                    mode.set_burst_mode(current_burst_mode);
-                    // バーストモードの場合は、キーボード入力でなければならない
-                    // インプットモードを変更する。
-                    let im = burst_mode[current_burst_mode as usize](mode.get_input_mode());
-                    mode.set_input_mode(im);
-                    println!(
-                        "{}入力モードに切り替えました。",
-                        ["🔂  通常", "🔁  バースト"][current_burst_mode as usize]
-                    );
-                }
-                ComboKey::Combo(4)
-            }),
-        ];
-        eh[ks as usize]()
+                    (false, InputMode::Clipboard)
+                };
+                mode.set_input_mode(im);
+                let old_burst = mode.is_burst_mode();
+                mode.set_burst_mode(burst);
+                println!(
+                    "{}モードに切り替えました。{}",
+                    ["📋  クリップボード入力", "🎹  キーボードエミュレーション"][im as usize],
+                    ["", "（バーストモードが無効化されました。）"][old_burst as usize]
+                );
+            } else {
+                // CTRL+ALT+M
+                let current_burst_mode = !mode.is_burst_mode();
+                mode.set_burst_mode(current_burst_mode);
+                // バーストモードの場合は、キーボード入力でなければならない
+                // インプットモードを変更する。
+                let im = if !current_burst_mode {
+                    mode.get_input_mode()
+                } else {
+                    InputMode::DirectKeyInput
+                };
+                mode.set_input_mode(im);
+                println!(
+                    "{}入力モードに切り替えました。",
+                    ["🔂  通常", "🔁  バースト"][current_burst_mode as usize]
+                );
+            }
+            ComboKey::Combo(4)
+        }
     });
 }
 
