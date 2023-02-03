@@ -648,7 +648,7 @@ unsafe fn load_data_from_clipboard(cb_data: &mut ClipboardData) -> Option<()> {
             cb_data.commit_copy_lines();
             GlobalUnlock(h_text.0);
             println!(
-                "クリップボードから {} 行コピーしました",
+                "クリップボードへ {} 行コピーしました",
                 cb_data.get_clipboard_lines() - current_len
             );
             Some(())
