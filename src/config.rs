@@ -90,7 +90,7 @@ impl CommandLineArgs {
             let plugin_names = pm.get_plugin_ordered_list().clone();
             for plugin_name in plugin_names {
                 let (about, _) = plugin_about(&mut pm, &plugin_name);
-                println!("{plugin_name}\t{about}");
+                println!("{plugin_name} {about}");
             }
         }
         self.installed_modifiers
@@ -113,7 +113,7 @@ impl Default for Config {
             tabindex_key: "\t".to_owned(),
             line_delay_msec: 200,
             char_delay_msec: 0,
-            paste_timeout: 250,
+            paste_timeout: 0,
             max_line_length: 256,
             text_modifiers_hot_reload: false,
             text_modifiers: None,

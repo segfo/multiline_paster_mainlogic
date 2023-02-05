@@ -565,6 +565,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
             }
             for _i in 0..len {
                 if paste_impl(&mut cb_data) != InputMode::DirectKeyInput {
+                    println!("❎  バーストモードによるペースト操作が中断されました。");
                     break;
                 }
                 kbd.send_key();
