@@ -1,3 +1,4 @@
+use toolbox::config_loader::ConfigLoader;
 use ::windows::Win32::UI::WindowsAndMessaging::KBDLLHOOKSTRUCT;
 use multiline_parser_pluginlib::result::*;
 use notify::event::{DataChange, ModifyKind};
@@ -14,6 +15,7 @@ pub extern "C" fn key_up(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginRe
     crate::default::key_up(keystate, stroke_msg)
 }
 use crate::config::get_config_path;
+use crate::default::{get_mode, set_mode};
 use notify::*;
 static mut EVENT_CHATTER: Lazy<Mutex<usize>> = Lazy::new(|| Mutex::new(0));
 static mut CONFIG_WATCHER: Lazy<Mutex<ReadDirectoryChangesWatcher>> = Lazy::new(|| {
@@ -62,18 +64,14 @@ async fn wait_flush() {
         *chatter_cnt -= 1;
         if *chatter_cnt == 0 {
             // 100ms（チャタリング判定時間）以内に到達したイベントの一番最後なので設定ファイルをロードする
-            load_config();
+            let mut mode = get_mode();
+            let config: crate::config::Config = ConfigLoader::load_file(&get_config_path());
+            dbg!(config.clone());
+            mode.set_config(config.clone());
+            set_mode(mode);
+            println!("🔄  設定ファイルをリロードしました。");
         }
     }
-}
-
-fn load_config() {
-    let (run_mode, config) = crate::config::init();
-    println!("🔄  設定ファイルをリロードしました。");
-    if let Some(encoder_list) = config.text_modifiers {
-        crate::default::load_encoder(encoder_list);
-    }
-    crate::default::set_mode(run_mode);
 }
 
 #[no_mangle]

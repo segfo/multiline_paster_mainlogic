@@ -129,7 +129,7 @@ pub enum HookMode {
     OsStandard,
     Override,
 }
-#[derive(Debug, PartialEq)]
+#[derive(Debug,Clone, PartialEq)]
 pub struct RunMode {
     input_mode: InputMode,
     burst_mode: bool,

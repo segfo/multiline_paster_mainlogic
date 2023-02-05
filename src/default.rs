@@ -110,6 +110,9 @@ pub fn set_mode(mode: RunMode) {
         *locked_gmode = mode;
     };
 }
+pub fn get_mode() -> RunMode {
+    unsafe{(*RUN_MODE.read().unwrap()).clone()}
+}
 static mut CB_IN_COPY: Lazy<RwLock<bool>> = Lazy::new(|| RwLock::new(false));
 pub fn update_clipboard() {
     let mut in_copy = unsafe { CB_IN_COPY.write().unwrap() };
@@ -547,6 +550,7 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         if is_burst_mode && input_mode == InputMode::DirectKeyInput {
             let mut kbd = Keyboard::new();
             let len = cb_data.get_clipboard_lines();
+            dbg!(char_delay_msec);
             kbd.new_delay(char_delay_msec);
             kbd.append_input_chain(
                 KeycodeBuilder::default()
