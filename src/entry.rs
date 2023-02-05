@@ -69,7 +69,7 @@ async fn wait_flush() {
             mode.set_config(config.clone());
             set_mode(mode);
             println!("🔄  設定ファイルをリロードしました。");
-            if config.text_modifiers_dyn_load {
+            if config.text_modifiers_hot_reload {
                 if let Some(encoder_list) = config.text_modifiers {
                     println!("🔄  モディファイアモジュールをホットリロードし、モディファイアの状態を初期化しました。");
                     crate::default::load_encoder(encoder_list);

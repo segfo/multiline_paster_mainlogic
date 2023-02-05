@@ -104,7 +104,7 @@ pub struct Config {
     pub char_delay_msec: u64,
     pub paste_timeout: u64,
     pub max_line_length: usize,
-    pub text_modifiers_dyn_load: bool,
+    pub text_modifiers_hot_reload: bool,
     pub text_modifiers: Option<Vec<String>>,
 }
 impl Default for Config {
@@ -115,7 +115,7 @@ impl Default for Config {
             char_delay_msec: 0,
             paste_timeout: 250,
             max_line_length: 256,
-            text_modifiers_dyn_load: false,
+            text_modifiers_hot_reload: false,
             text_modifiers: None,
         }
     }
