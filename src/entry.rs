@@ -1,10 +1,10 @@
-use toolbox::config_loader::ConfigLoader;
 use ::windows::Win32::UI::WindowsAndMessaging::KBDLLHOOKSTRUCT;
 use multiline_parser_pluginlib::result::*;
 use notify::event::{DataChange, ModifyKind};
 use once_cell::sync::Lazy;
 use std::path::Path;
 use std::sync::Mutex;
+use toolbox::config_loader::ConfigLoader;
 #[no_mangle]
 pub extern "C" fn key_down(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
     crate::default::key_down(keystate, stroke_msg)
@@ -69,6 +69,12 @@ async fn wait_flush() {
             mode.set_config(config.clone());
             set_mode(mode);
             println!("🔄  設定ファイルをリロードしました。");
+            if config.text_modifiers_dyn_load {
+                if let Some(encoder_list) = config.text_modifiers {
+                    println!("🔄  モディファイアモジュールをホットリロードし、モディファイアの状態を初期化しました。");
+                    crate::default::load_encoder(encoder_list);
+                }
+            }
         }
     }
 }

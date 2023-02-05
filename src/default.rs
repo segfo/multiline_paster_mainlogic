@@ -550,7 +550,6 @@ pub async fn paste(is_clipboard_locked: Arc<(Mutex<bool>, Condvar)>) {
         if is_burst_mode && input_mode == InputMode::DirectKeyInput {
             let mut kbd = Keyboard::new();
             let len = cb_data.get_clipboard_lines();
-            dbg!(char_delay_msec);
             kbd.new_delay(char_delay_msec);
             kbd.append_input_chain(
                 KeycodeBuilder::default()
