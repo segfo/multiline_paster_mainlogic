@@ -18,6 +18,8 @@ dirs = "4.0.0"
 libloading = "0.7"
 toolbox={path="./libtoolbox"}
 multiline_parser_pluginlib={path="./multiline_parser_pluginlib"}
+notify = "5.1.0"
+chrono = "0.4.23"
 [dependencies.async-std]
 features = ["attributes", "std"]
 version = "1.12.0"
@@ -33,5 +35,8 @@ features = [
   "Win32_System_WindowsProgramming",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_TextServices",
+  "Win32_Storage_FileSystem",
+  "Win32_System_IO",
+  "Win32_Security"
 ]
 version = "0.43.0"

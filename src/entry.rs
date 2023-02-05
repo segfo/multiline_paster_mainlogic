@@ -1,8 +1,10 @@
-use std::sync::Mutex;
-
+use ::windows::Win32::UI::WindowsAndMessaging::KBDLLHOOKSTRUCT;
 use multiline_parser_pluginlib::result::*;
+use notify::event::{DataChange, ModifyKind};
 use once_cell::sync::Lazy;
-use windows::Win32::UI::WindowsAndMessaging::KBDLLHOOKSTRUCT;
+use std::path::Path;
+use std::sync::Mutex;
+use toml::value::Datetime;
 #[no_mangle]
 pub extern "C" fn key_down(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
     crate::default::key_down(keystate, stroke_msg)
@@ -12,26 +14,98 @@ pub extern "C" fn key_down(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> Plugin
 pub extern "C" fn key_up(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
     crate::default::key_up(keystate, stroke_msg)
 }
+use crate::config::get_config_path;
+use chrono::{DateTime, Local};
+use notify::*;
+static mut TIMER_LIST: Lazy<Mutex<Vec<DateTime<Local>>>> = Lazy::new(|| Mutex::new(Vec::new()));
+static mut CONFIG_WATCHER: Lazy<Mutex<ReadDirectoryChangesWatcher>> = Lazy::new(|| {
+    Mutex::new(
+        notify::recommended_watcher(|res: std::result::Result<Event, Error>| match res {
+            Ok(event) => {
+                let config_path = get_config_path();
+                let conf = std::fs::canonicalize(Path::new(&config_path)).unwrap();
+                let mut do_reload = false;
+                match event.kind {
+                    EventKind::Modify(ModifyKind::Any) => {
+                        for path in event.paths {
+                            if path.cmp(&conf) == std::cmp::Ordering::Equal {
+                                do_reload = true;
+                            }
+                        }
+                    }
+                    t => {
+                        println!("{t:?}");
+                    }
+                }
+                if do_reload {
+                    unsafe {
+                        let mut list = TIMER_LIST.lock().unwrap();
+                        list.push(Local::now());
+                    }
+                    async_std::task::spawn(wait_flush());
+                }
+            }
+            Err(e) => {
+                eprintln!("❌  設定ファイルの監視/リロードに失敗しました。\n{e:?}");
+            }
+        })
+        .unwrap(),
+    )
+});
+// ファイルがフラッシュされるであろう時まで待つ
+// 100msも待てばまぁ良いでしょう。
+async fn wait_flush() {
+    let wait_time = 100;
+    std::thread::sleep(std::time::Duration::from_millis(wait_time));
+    unsafe {
+        let mut timers = TIMER_LIST.lock().unwrap();
+        let len = timers.len();
+        if len > 0 {
+            let latest_time = timers.pop().unwrap();
+            if timers.len() == 0
+                && Local::now().timestamp_millis()
+                    > latest_time.timestamp_millis() + wait_time as i64
+            {
+                load_config();
+            }
+        }
+    }
+}
 
-#[no_mangle]
-pub extern "C" fn init_plugin() {
-    let (run_mode,config) = crate::config::init();
-    println!("🟢  起動しました。");
+fn load_config() {
+    let (run_mode, config) = crate::config::init();
+    println!("🔄  設定ファイルをリロードしました。");
     if let Some(encoder_list) = config.text_modifiers {
         crate::default::load_encoder(encoder_list);
     }
     crate::default::set_mode(run_mode);
 }
 
+#[no_mangle]
+pub extern "C" fn init_plugin() {
+    let (run_mode, config) = crate::config::init();
+    println!("🟢  起動しました。");
+    if let Some(encoder_list) = config.text_modifiers {
+        crate::default::load_encoder(encoder_list);
+    }
+    crate::default::set_mode(run_mode);
+    let config_path = get_config_path();
+    let p = std::fs::canonicalize(Path::new(&config_path)).unwrap();
+    let mut watcher = unsafe { CONFIG_WATCHER.lock().unwrap() };
+    watcher
+        .watch(p.as_path(), RecursiveMode::NonRecursive)
+        .unwrap();
+}
+
 static mut ABOUT_STRING: Lazy<Mutex<Vec<u8>>> = Lazy::new(|| Mutex::new(Vec::new()));
 #[no_mangle]
-pub extern "C" fn about()->EncodedString {
-    let mut s=unsafe{ABOUT_STRING.lock().unwrap()};
-    *s="メインロジックDLL".as_bytes().to_vec();
+pub extern "C" fn about() -> EncodedString {
+    let mut s = unsafe { ABOUT_STRING.lock().unwrap() };
+    *s = "メインロジックDLL".as_bytes().to_vec();
     EncodedString::new(s.as_ptr(), s.len())
 }
 
 #[no_mangle]
-extern "C" fn update_clipboard(){
+extern "C" fn update_clipboard() {
     crate::default::update_clipboard();
 }

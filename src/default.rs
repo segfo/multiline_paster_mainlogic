@@ -129,6 +129,7 @@ pub fn load_encoder(encoder_list: Vec<String>) {
     if encoder_list.len() == 0 {
         return;
     }
+    pm.unload_all_plugin();
     for encoder in &encoder_list {
         if encoder.len() == 0 {
             println!("❌  モディファイアの設定に空白文字が指定されています。このモディファイアは読まれません。");
@@ -786,7 +787,7 @@ fn get_window_text(hwnd: HWND) -> String {
     }
 }
 
-unsafe fn u16_ptr_to_string(ptr: *const u16) -> OsString {
+pub unsafe fn u16_ptr_to_string(ptr: *const u16) -> OsString {
     let len = (0..).take_while(|&i| *ptr.offset(i) != 0).count();
     let slice = std::slice::from_raw_parts(ptr, len);
     OsString::from_wide(slice)

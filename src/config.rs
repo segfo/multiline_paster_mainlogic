@@ -19,14 +19,16 @@ pub fn plugin_about(pm: &mut PluginManager, plugin_name: &str) -> (String, Plugi
         ("".to_owned(), PluginActivateState::Disable)
     }
 }
-
+pub fn get_config_path()->String{
+    "logic_config.toml".to_owned()
+}
 pub fn init() -> (RunMode, Config) {
     let args = CommandLineArgs::parse();
     if args.show_install_plugins() {
         std::process::exit(0);
     }
     let mut mode = args.configure(RunMode::default());
-    let config: Config = ConfigLoader::load_file("logic_config.toml");
+    let config: Config = ConfigLoader::load_file(&get_config_path());
     mode.set_config(config.clone());
     crate::default::eh_init();
     (mode, config)
