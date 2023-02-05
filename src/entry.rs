@@ -4,7 +4,6 @@ use notify::event::{DataChange, ModifyKind};
 use once_cell::sync::Lazy;
 use std::path::Path;
 use std::sync::Mutex;
-use toml::value::Datetime;
 #[no_mangle]
 pub extern "C" fn key_down(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginResult {
     crate::default::key_down(keystate, stroke_msg)
@@ -15,9 +14,8 @@ pub extern "C" fn key_up(keystate: u32, stroke_msg: KBDLLHOOKSTRUCT) -> PluginRe
     crate::default::key_up(keystate, stroke_msg)
 }
 use crate::config::get_config_path;
-use chrono::{DateTime, Local};
 use notify::*;
-static mut TIMER_LIST: Lazy<Mutex<Vec<DateTime<Local>>>> = Lazy::new(|| Mutex::new(Vec::new()));
+static mut EVENT_CHATTER: Lazy<Mutex<usize>> = Lazy::new(|| Mutex::new(0));
 static mut CONFIG_WATCHER: Lazy<Mutex<ReadDirectoryChangesWatcher>> = Lazy::new(|| {
     Mutex::new(
         notify::recommended_watcher(|res: std::result::Result<Event, Error>| match res {
@@ -38,9 +36,11 @@ static mut CONFIG_WATCHER: Lazy<Mutex<ReadDirectoryChangesWatcher>> = Lazy::new(
                     }
                 }
                 if do_reload {
+                    // ファイル変更イベントはアホみたいに来るので、最後の1個だけ処理するようにする。
+                    // チャタリング対策というやつ
                     unsafe {
-                        let mut list = TIMER_LIST.lock().unwrap();
-                        list.push(Local::now());
+                        let mut chatter_cnt = EVENT_CHATTER.lock().unwrap();
+                        *chatter_cnt += 1;
                     }
                     async_std::task::spawn(wait_flush());
                 }
@@ -58,16 +58,11 @@ async fn wait_flush() {
     let wait_time = 100;
     std::thread::sleep(std::time::Duration::from_millis(wait_time));
     unsafe {
-        let mut timers = TIMER_LIST.lock().unwrap();
-        let len = timers.len();
-        if len > 0 {
-            let latest_time = timers.pop().unwrap();
-            if timers.len() == 0
-                && Local::now().timestamp_millis()
-                    > latest_time.timestamp_millis() + wait_time as i64
-            {
-                load_config();
-            }
+        let mut chatter_cnt = EVENT_CHATTER.lock().unwrap();
+        *chatter_cnt -= 1;
+        if *chatter_cnt == 0 {
+            // 100ms（チャタリング判定時間）以内に到達したイベントの一番最後なので設定ファイルをロードする
+            load_config();
         }
     }
 }
