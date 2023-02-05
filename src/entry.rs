@@ -66,7 +66,6 @@ async fn wait_flush() {
             // 100ms（チャタリング判定時間）以内に到達したイベントの一番最後なので設定ファイルをロードする
             let mut mode = get_mode();
             let config: crate::config::Config = ConfigLoader::load_file(&get_config_path());
-            dbg!(config.clone());
             mode.set_config(config.clone());
             set_mode(mode);
             println!("🔄  設定ファイルをリロードしました。");
